@@ -24,7 +24,7 @@ num_months = 3  # Number of months to download
 
 # Define filters for the train dataset
 train_filters = {
-    'LINIEN_TEXT': 'IC2'
+    'LINIEN_TEXT': ['IC2', 'IC3']
 }
 
 # If force_download is True, remove all existing data
