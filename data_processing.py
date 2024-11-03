@@ -6,6 +6,7 @@ from dask.diagnostics import ProgressBar
 import pyarrow as pa
 from dask_ml.preprocessing import DummyEncoder
 import pandas as pd
+from tqdm import tqdm
 
 def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_columns, delimiter=';'):
     """
@@ -26,7 +27,7 @@ def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_co
     data_files = _get_csv_files(train_folder)
     logging.info(f"Found {len(data_files)} CSV files to process.")
     
-    data = _load_data(data_files, delimiter)
+    data = load_data_into_dask_dataframe(data_files, delimiter)
     if data is None:
         return None
     
@@ -44,7 +45,7 @@ def _get_csv_files(folder):
     """
     return [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.csv')]
 
-def _load_data(data_files, delimiter):
+def load_data_into_dask_dataframe(data_files, delimiter):
     """
     Load data from CSV files into a Dask DataFrame.
 
@@ -56,21 +57,30 @@ def _load_data(data_files, delimiter):
     dask.dataframe.DataFrame: The loaded data, or None if an error occurred.
     """
     try:
-        with ProgressBar():
-            logging.info("Loading data into Dask DataFrame.")
-            data = dd.read_csv(data_files, delimiter=delimiter, dtype={
-                'LINIEN_ID': 'object', 
-                'UMLAUF_ID': 'object',
-                'BETREIBER_ABK': 'object',
-                'LINIEN_TEXT': 'object',
-                'BETRIEBSTAG': 'object'
-            }, low_memory=False)
+        logging.info("Loading data into Dask DataFrame.")
+        dtype = {
+            'LINIEN_ID': 'object', 
+            'UMLAUF_ID': 'object',
+            'BETREIBER_ABK': 'object',
+            'LINIEN_TEXT': 'object',
+            'BETRIEBSTAG': 'object',
+            'AN_PROGNOSE_STATUS': 'object',
+            'AB_PROGNOSE_STATUS': 'object',
+            'ANKUNFTSZEIT': 'object',
+            'AN_PROGNOSE': 'object',
+            'ABFAHRTSZEIT': 'object'
+        }
+        
+        with tqdm(total=len(data_files), desc="Loading CSV files") as pbar:
+            data = dd.read_csv(data_files, delimiter=delimiter, dtype=dtype, assume_missing=True, blocksize=None)
+            pbar.update(len(data_files))
+        
         logging.info("Data loaded into Dask DataFrame.")
-        logging.info(f"Data columns: {data.columns}")
+        logging.debug(f"Data columns: {data.columns}")
         return data
     except Exception as e:
-        logging.error(f"Error loading data into Dask DataFrame: {e}")
-        return None
+        logging.error(f"Error loading data into Dask DataFrame from files {data_files}: {e}")
+    return None
 
 def _exclude_columns(data, exclude_columns):
     """
