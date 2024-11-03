@@ -86,7 +86,24 @@ def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
     if data is None:
         return None
     
-    # Add encoding step
+    def calculate_time_difference(data, col1, col2, new_col_name):
+        try:
+            data[col1] = dd.to_datetime(data[col1], format='mixed', dayfirst=True)
+            data[col2] = dd.to_datetime(data[col2], format='mixed', dayfirst=True)
+            data[new_col_name] = (data[col1] - data[col2]).dt.total_seconds()
+        except Exception as e:
+            logging.error(f"Error calculating time difference for {new_col_name}: {e}")
+            return None
+        return data
+    
+    data = calculate_time_difference(data, 'ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS')
+    if data is None:
+        return None
+    
+    data = calculate_time_difference(data, 'ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
+    if data is None:
+        return None
+    
     data = _encode_categorical_columns(data)
     if data is None:
         return None
