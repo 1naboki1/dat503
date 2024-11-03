@@ -70,7 +70,7 @@ def main():
         exit(1)
 
     if data is not None:
-        X = data.drop('target_column', axis=1)  # Replace 'target_column' with the actual target column name
+        X = data.drop('target_column', axis=1).copy()  # Replace 'target_column' with the actual target column name
         y = data['target_column']
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
