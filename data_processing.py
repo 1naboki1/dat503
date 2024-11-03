@@ -19,11 +19,7 @@ def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_co
     if data is None:
         return None
     
-    data = _exclude_columns(data, exclude_columns)
-    if data is None:
-        return None
-    
-    return preprocess_and_save_data(data, filters, output_file_path)
+    return preprocess_and_save_data(data, filters, exclude_columns, output_file_path)
 
 def _get_csv_files(folder):
     return [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.csv')]
@@ -50,8 +46,12 @@ def _exclude_columns(data, exclude_columns):
         logging.error(f"Error excluding columns: {e}")
         return None
 
-def preprocess_and_save_data(data, filters, output_file_path):
+def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
     data = _apply_filters(data, filters)
+    if data is None:
+        return None
+    
+    data = _exclude_columns(data, exclude_columns)
     if data is None:
         return None
     
@@ -62,6 +62,17 @@ def preprocess_and_save_data(data, filters, output_file_path):
     return _save_data(data, output_file_path)
 
 def _apply_filters(data, filters):
+    # Apply custom filters for AN_PROGNOSE_STATUS and AB_PROGNOSE_STATUS
+    try:
+        logging.info("Applying custom filters for AN_PROGNOSE_STATUS and AB_PROGNOSE_STATUS.")
+        with ProgressBar():
+            data = data[(data["AN_PROGNOSE_STATUS"] == "REAL") & (data["AB_PROGNOSE_STATUS"] == "REAL")]
+        logging.info("Custom filters applied.")
+    except Exception as e:
+        logging.error(f"Error applying custom filters: {e}")
+        return None
+
+    # Apply additional filters if provided
     if filters:
         for column, values in filters.items():
             if not isinstance(values, list):
@@ -108,13 +119,10 @@ def _save_data(data, output_file_path):
                 ('ZUSATZFAHRT_TF', pa.bool_()),
                 ('FAELLT_AUS_TF', pa.bool_()),
                 ('BPUIC', pa.int64()),
-                ('HALTESTELLEN_NAME', pa.string()),
                 ('ANKUNFTSZEIT', pa.string()),
                 ('AN_PROGNOSE', pa.string()),
-                ('AN_PROGNOSE_STATUS', pa.string()),
                 ('ABFAHRTSZEIT', pa.string()),
                 ('AB_PROGNOSE', pa.string()),
-                ('AB_PROGNOSE_STATUS', pa.string()),
                 ('DURCHFAHRT_TF', pa.bool_()),
                 ('__null_dask_index__', pa.int64())
             ])
