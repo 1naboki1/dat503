@@ -20,7 +20,12 @@ train_folder = os.path.join(os.path.dirname(__file__), 'data', 'train')
 
 # Variables to control the download process
 force_download = False  # Set to True to download the data
-num_months = 2  # Number of months to download
+num_months = 3  # Number of months to download
+
+# Define filters for the train dataset
+train_filters = {
+    'LINIEN_TEXT': 'IC2'
+}
 
 # If force_download is True, remove all existing data
 if force_download and os.path.exists(train_folder):
@@ -38,8 +43,8 @@ if force_download:
 else:
     logging.info("Skipping download and extraction as force_download is set to False.")
 
-# Load and preprocess the data
-processed_data_file = load_and_preprocess_data(train_folder)
+# Load and preprocess the data with filters
+processed_data_file = load_and_preprocess_data(train_folder, train_filters)
 
 # Load the processed data
 data = pd.read_csv(processed_data_file)
