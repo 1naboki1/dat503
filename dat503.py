@@ -9,8 +9,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import dask.dataframe as dd
 
-# Configure logging
 def configure_logging():
+    """Configure logging settings."""
     logging.basicConfig(
         filename='dat503.log',
         level=logging.INFO,
@@ -28,14 +28,17 @@ TRAIN_OUTPUT_FILE_PATH = os.path.join(TRAIN_FOLDER, 'working', 'processed_data.p
 TRAIN_EXCLUDE_COLUMNS = ['PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT', 'AN_PROGNOSE_STATUS', 'AB_PROGNOSE_STATUS', 'HALTESTELLEN_NAME']  # Columns to exclude from processing
 
 def remove_existing_data(folder):
+    """Remove existing data in the specified folder."""
     if os.path.exists(folder):
         shutil.rmtree(folder)
 
 def calculate_months(num_months):
+    """Calculate the list of months to download data for."""
     today = datetime.today()
     return [(today - timedelta(days=30 * i)).strftime("%Y-%m") for i in range(num_months)]
 
 def download_data_if_needed(base_url, train_folder, months, force_download):
+    """Download and extract data if needed."""
     if force_download:
         os.makedirs(train_folder, exist_ok=True)
         for month in months:
@@ -44,6 +47,7 @@ def download_data_if_needed(base_url, train_folder, months, force_download):
         logging.info("Skipping download and extraction as force_download is set to False.")
 
 def main():
+    """Main function to orchestrate data processing and model training."""
     configure_logging()
 
     if FORCE_DOWNLOAD:

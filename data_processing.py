@@ -10,6 +10,7 @@ import pyarrow as pa
 pd.set_option('future.no_silent_downcasting', True)
 
 def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_columns, delimiter=';'):
+    """Load and preprocess data from the specified folder."""
     logging.info(f"Starting to load data from {train_folder}")
     
     data_files = _get_csv_files(train_folder)
@@ -22,9 +23,11 @@ def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_co
     return preprocess_and_save_data(data, filters, exclude_columns, output_file_path)
 
 def _get_csv_files(folder):
+    """Get a list of CSV files in the specified folder."""
     return [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.csv')]
 
 def _load_data(data_files, delimiter):
+    """Load data from CSV files into a Dask DataFrame."""
     try:
         with ProgressBar():
             logging.info("Loading data into Dask DataFrame.")
@@ -37,6 +40,7 @@ def _load_data(data_files, delimiter):
         return None
 
 def _exclude_columns(data, exclude_columns):
+    """Exclude specified columns from the data."""
     try:
         logging.info(f"Excluding columns: {exclude_columns}")
         data = data.drop(columns=exclude_columns, errors='ignore')
@@ -47,6 +51,7 @@ def _exclude_columns(data, exclude_columns):
         return None
 
 def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
+    """Preprocess and save data to a Parquet file."""
     data = _apply_filters(data, filters)
     if data is None:
         return None
@@ -62,7 +67,7 @@ def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
     return _save_data(data, output_file_path)
 
 def _apply_filters(data, filters):
-    # Apply custom filters for AN_PROGNOSE_STATUS and AB_PROGNOSE_STATUS
+    """Apply filters to the data."""
     try:
         logging.info("Applying custom filters for AN_PROGNOSE_STATUS and AB_PROGNOSE_STATUS.")
         with ProgressBar():
@@ -72,7 +77,6 @@ def _apply_filters(data, filters):
         logging.error(f"Error applying custom filters: {e}")
         return None
 
-    # Apply additional filters if provided
     if filters:
         for column, values in filters.items():
             if not isinstance(values, list):
@@ -92,6 +96,7 @@ def _apply_filters(data, filters):
     return data
 
 def _preprocess_data(data):
+    """Preprocess the data by filling missing values and inferring object types."""
     try:
         logging.info("Filling missing values with NaN.")
         with ProgressBar():
@@ -104,12 +109,11 @@ def _preprocess_data(data):
         return None
 
 def _save_data(data, output_file_path):
+    """Save the processed data to a Parquet file."""
     try:
         logging.info(f"Saving processed data to {output_file_path}")
         with ProgressBar():
-            # Increase the number of partitions for parallel writing
             data = data.repartition(npartitions=20)
-            # Define the schema for the Parquet file
             schema = pa.schema([
                 ('BETRIEBSTAG', pa.string()),
                 ('FAHRT_BEZEICHNER', pa.string()),
@@ -126,7 +130,6 @@ def _save_data(data, output_file_path):
                 ('DURCHFAHRT_TF', pa.bool_()),
                 ('__null_dask_index__', pa.int64())
             ])
-            # Save data in Parquet format for better performance
             output_file_path = output_file_path.replace('.csv', '.parquet')
             data.to_parquet(output_file_path, engine='pyarrow', compression='snappy', schema=schema, write_metadata_file=False)
         logging.info("Successfully processed and saved data to a Parquet file.")
