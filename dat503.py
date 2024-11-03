@@ -13,8 +13,9 @@ def configure_logging():
     """Configure logging settings."""
     logging.basicConfig(
         filename='dat503.log',
-        level=logging.DEBUG,
-        format='%(asctime)s - %(levelname)s - %(message)s - %(filename)s:%(lineno)d'
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s - %(filename)s:%(lineno)d',
+        filemode='w'  # Overwrite the log file on each run
     )
     logging.captureWarnings(True)
 
