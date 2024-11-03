@@ -13,7 +13,7 @@ def configure_logging():
     """Configure logging settings."""
     logging.basicConfig(
         filename='dat503.log',
-        level=logging.INFO,
+        level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - %(message)s - %(filename)s:%(lineno)d'
     )
     logging.captureWarnings(True)

@@ -91,7 +91,7 @@ def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
     if data is None:
         return None
     
-    return _save_data(data, output_file_path)
+    return save_processed_data(data, output_file_path)
 
 def _apply_filters(data, filters):
     """Apply filters to the data."""
@@ -135,14 +135,26 @@ def _preprocess_data(data):
         logging.error(f"Error during data preprocessing: {e}")
         return None
 
-def _save_data(data, output_file_path):
-    """Save the processed data to a Parquet file."""
+def save_processed_data(data, output_file_path):
+    """
+    Save the processed data to a Parquet file.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The processed data to be saved.
+    output_file_path (str): The file path where the data should be saved.
+
+    Returns:
+    str: The path to the saved Parquet file, or None if an error occurred.
+    """
     try:
-        logging.info(f"Saving processed data to {output_file_path}")
+        logging.info(f"Starting to save processed data to {output_file_path}")
+        
         with ProgressBar():
+            logging.info("Repartitioning data into 20 partitions")
             data = data.repartition(npartitions=20)
             
             # Create dynamic schema based on the encoded columns
+            logging.info("Creating dynamic schema based on the encoded columns")
             column_types = data.dtypes
             schema_fields = []
             for col, dtype in column_types.items():
@@ -155,15 +167,20 @@ def _save_data(data, output_file_path):
                 else:
                     pa_type = pa.string()
                 schema_fields.append((col, pa_type))
+                logging.debug(f"Column: {col}, Type: {dtype}, Parquet Type: {pa_type}")
             
             schema = pa.schema(schema_fields)
+            logging.info("Schema creation complete")
             
             output_file_path = output_file_path.replace('.csv', '.parquet')
+            logging.info(f"Output file path changed to {output_file_path}")
+            
+            logging.info("Starting to write data to Parquet file")
             data.to_parquet(output_file_path, 
-                          engine='pyarrow', 
-                          compression='snappy', 
-                          schema=schema, 
-                          write_metadata_file=False)
+                            engine='pyarrow', 
+                            compression='snappy', 
+                            schema=schema, 
+                            write_metadata_file=False)
             
         logging.info("Successfully processed and saved data to a Parquet file.")
         return output_file_path
