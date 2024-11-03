@@ -10,60 +10,74 @@ from sklearn.metrics import accuracy_score
 import pandas as pd
 
 # Configure logging
-logging.basicConfig(filename='dat503.log', level=logging.INFO, 
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-logging.captureWarnings(True)
+def configure_logging():
+    logging.basicConfig(
+        filename='dat503.log',
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s - %(filename)s:%(lineno)d'
+    )
+    logging.captureWarnings(True)
 
-# Define the base URL and the target folder
-base_url = "https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/"
-train_folder = os.path.join(os.path.dirname(__file__), 'data', 'train')
+# Define constants
+BASE_URL = "https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/"
+TRAIN_FOLDER = os.path.join(os.path.dirname(__file__), 'data', 'train')
+FORCE_DOWNLOAD = True  # Set to True to download the data
+NUM_MONTHS = 3  # Number of months to download
+TRAIN_FILTERS = {'LINIEN_TEXT': ['IC2', 'IC3']}
+OUTPUT_FILE_PATH = os.path.join(TRAIN_FOLDER, 'working', 'processed_data.csv')
 
-# Variables to control the download process
-force_download = True  # Set to True to download the data
-num_months = 3  # Number of months to download
+def remove_existing_data(folder):
+    if os.path.exists(folder):
+        shutil.rmtree(folder)
 
-# Define filters for the train dataset
-train_filters = {
-    'LINIEN_TEXT': ['IC2', 'IC3']
-}
+def calculate_months(num_months):
+    today = datetime.today()
+    return [(today - timedelta(days=30 * i)).strftime("%Y-%m") for i in range(num_months)]
 
-# If force_download is True, remove all existing data
-if force_download and os.path.exists(train_folder):
-    shutil.rmtree(train_folder)
+def download_data_if_needed(base_url, train_folder, months, force_download):
+    if force_download:
+        os.makedirs(train_folder, exist_ok=True)
+        for month in months:
+            download_extract(base_url, train_folder, month)
+    else:
+        logging.info("Skipping download and extraction as force_download is set to False.")
 
-# Calculate the last 'num_months' months
-today = datetime.today()
-months = [(today - timedelta(days=30 * i)).strftime("%Y-%m") for i in range(num_months)]
+def main():
+    configure_logging()
 
-# Download and extract the files if force_download is True
-if force_download:
-    os.makedirs(train_folder, exist_ok=True)
-    for month in months:
-        download_extract(base_url, train_folder, month)
-else:
-    logging.info("Skipping download and extraction as force_download is set to False.")
+    if FORCE_DOWNLOAD:
+        remove_existing_data(TRAIN_FOLDER)
 
-# Load and preprocess the data with filters
-processed_data_file = load_and_preprocess_data(train_folder, train_filters)
+    months = calculate_months(NUM_MONTHS)
+    download_data_if_needed(BASE_URL, TRAIN_FOLDER, months, FORCE_DOWNLOAD)
 
-# Load the processed data
-data = pd.read_csv(processed_data_file)
+    processed_data_file = load_and_preprocess_data(TRAIN_FOLDER, TRAIN_FILTERS, OUTPUT_FILE_PATH)
 
-if data is not None:
-    # Define features and target variable
-    X = data.drop('target_column', axis=1)  # Replace 'target_column' with the actual target column name
-    y = data['target_column']
+    if processed_data_file is None:
+        logging.error("Processed data file is None. Exiting.")
+        exit(1)
 
-    # Split the data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    try:
+        data = pd.read_csv(processed_data_file)
+    except Exception as e:
+        logging.error(f"Error loading processed data file: {e}")
+        exit(1)
 
-    # Train the random forest model
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
+    if data is not None:
+        X = data.drop('target_column', axis=1)  # Replace 'target_column' with the actual target column name
+        y = data['target_column']
 
-    # Evaluate the model
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    logging.info(f"Model accuracy: {accuracy}")
-else:
-    logging.error("Data loading and preprocessing failed.")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model.fit(X_train, y_train)
+
+        y_pred = model.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+        logging.info(f"Model accuracy: {accuracy}")
+    else:
+        logging.error("Data is None after loading the processed data file.")
+        exit(1)
+
+if __name__ == "__main__":
+    main()
