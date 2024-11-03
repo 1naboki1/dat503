@@ -19,7 +19,7 @@ base_url = "https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive
 train_folder = os.path.join(os.path.dirname(__file__), 'data', 'train')
 
 # Variables to control the download process
-force_download = True  # Set to True to download the data
+force_download = False  # Set to True to download the data
 num_months = 2  # Number of months to download
 
 # If force_download is True, remove all existing data

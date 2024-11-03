@@ -1,0 +1,92 @@
+2024-11-03 01:08:09,850 - INFO - Skipping download and extraction as force_download is set to False.
+2024-11-03 01:08:09,850 - INFO - Starting to load data from /home/vmk0863/dat503/data/train
+2024-11-03 01:08:09,850 - INFO - Found 32 CSV files to process.
+2024-11-03 01:08:09,863 - INFO - Data loaded into Dask DataFrame.
+2024-11-03 01:08:09,863 - INFO - Missing values filled with 0.
+2024-11-03 01:08:09,863 - INFO - Saving processed data to /home/vmk0863/dat503/data/train/working/processed_data.csv
+2024-11-03 01:08:18,057 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:18,367 - ERROR - Error saving processed data to CSV file: Mismatched dtypes found in `pd.read_csv`/`pd.read_table`.
+
++-----------+--------+----------+
+| Column    | Found  | Expected |
++-----------+--------+----------+
+| LINIEN_ID | object | float64  |
+| UMLAUF_ID | object | float64  |
++-----------+--------+----------+
+
+The following columns also raised exceptions on conversion:
+
+- LINIEN_ID
+  ValueError("could not convert string to float: '85:849:080'")
+- UMLAUF_ID
+  ValueError("could not convert string to float: 'BUS.701'")
+
+Usually this is due to dask's dtype inference failing, and
+*may* be fixed by specifying dtypes manually by adding:
+
+dtype={'LINIEN_ID': 'object',
+       'UMLAUF_ID': 'object'}
+
+to the call to `read_csv`/`read_table`.
+2024-11-03 01:08:18,390 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:18,553 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:18,668 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:19,312 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:19,480 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:19,519 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:19,919 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:19,946 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:20,042 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:20,054 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:20,100 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:20,105 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:20,119 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:20,450 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:20,616 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:21,042 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:21,053 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:21,200 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:21,228 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 01:08:21,233 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
