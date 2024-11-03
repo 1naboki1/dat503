@@ -8,7 +8,19 @@ from dask_ml.preprocessing import DummyEncoder
 import pandas as pd
 
 def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_columns, delimiter=';'):
-    """Load and preprocess data from the specified folder."""
+    """
+    Load and preprocess data from the specified folder.
+
+    Parameters:
+    train_folder (str): The folder containing the CSV files to be processed.
+    filters (dict): A dictionary of filters to apply to the data.
+    output_file_path (str): The file path where the processed data should be saved.
+    exclude_columns (list): A list of columns to exclude from the data.
+    delimiter (str): The delimiter used in the CSV files.
+
+    Returns:
+    str: The path to the saved Parquet file, or None if an error occurred.
+    """
     logging.info(f"Starting to load data from {train_folder}")
     
     data_files = _get_csv_files(train_folder)
@@ -21,11 +33,28 @@ def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_co
     return preprocess_and_save_data(data, filters, exclude_columns, output_file_path)
 
 def _get_csv_files(folder):
-    """Get a list of CSV files in the specified folder."""
+    """
+    Get a list of CSV files in the specified folder.
+
+    Parameters:
+    folder (str): The folder to search for CSV files.
+
+    Returns:
+    list: A list of file paths to the CSV files in the folder.
+    """
     return [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.csv')]
 
 def _load_data(data_files, delimiter):
-    """Load data from CSV files into a Dask DataFrame."""
+    """
+    Load data from CSV files into a Dask DataFrame.
+
+    Parameters:
+    data_files (list): A list of file paths to the CSV files.
+    delimiter (str): The delimiter used in the CSV files.
+
+    Returns:
+    dask.dataframe.DataFrame: The loaded data, or None if an error occurred.
+    """
     try:
         with ProgressBar():
             logging.info("Loading data into Dask DataFrame.")
@@ -44,7 +73,16 @@ def _load_data(data_files, delimiter):
         return None
 
 def _exclude_columns(data, exclude_columns):
-    """Exclude specified columns from the data."""
+    """
+    Exclude specified columns from the data.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data from which columns should be excluded.
+    exclude_columns (list): A list of columns to exclude.
+
+    Returns:
+    dask.dataframe.DataFrame: The data with specified columns excluded, or None if an error occurred.
+    """
     try:
         logging.info(f"Excluding columns: {exclude_columns}")
         data = data.drop(columns=exclude_columns, errors='ignore')
@@ -55,7 +93,15 @@ def _exclude_columns(data, exclude_columns):
         return None
 
 def _encode_categorical_columns(data):
-    """Encode all columns to int64 using Dask's parallel processing."""
+    """
+    Encode all columns to int64 using Dask's parallel processing.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data to be encoded.
+
+    Returns:
+    dask.dataframe.DataFrame: The encoded data, or None if an error occurred.
+    """
     try:
         logging.info("Encoding all columns to int64.")
         
@@ -73,7 +119,18 @@ def _encode_categorical_columns(data):
     return data
 
 def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
-    """Preprocess and save data to a Parquet file."""
+    """
+    Preprocess and save data to a Parquet file.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data to be processed.
+    filters (dict): A dictionary of filters to apply to the data.
+    exclude_columns (list): A list of columns to exclude from the data.
+    output_file_path (str): The file path where the processed data should be saved.
+
+    Returns:
+    str: The path to the saved Parquet file, or None if an error occurred.
+    """
     data = _apply_filters(data, filters)
     if data is None:
         return None
@@ -86,21 +143,7 @@ def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
     if data is None:
         return None
     
-    def calculate_time_difference(data, col1, col2, new_col_name):
-        try:
-            data[col1] = dd.to_datetime(data[col1], format='mixed', dayfirst=True)
-            data[col2] = dd.to_datetime(data[col2], format='mixed', dayfirst=True)
-            data[new_col_name] = (data[col1] - data[col2]).dt.total_seconds()
-        except Exception as e:
-            logging.error(f"Error calculating time difference for {new_col_name}: {e}")
-            return None
-        return data
-    
-    data = calculate_time_difference(data, 'ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS')
-    if data is None:
-        return None
-    
-    data = calculate_time_difference(data, 'ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
+    data = _calculate_time_differences(data)
     if data is None:
         return None
     
@@ -111,7 +154,16 @@ def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
     return save_processed_data(data, output_file_path)
 
 def _apply_filters(data, filters):
-    """Apply filters to the data."""
+    """
+    Apply filters to the data.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data to be filtered.
+    filters (dict): A dictionary of filters to apply.
+
+    Returns:
+    dask.dataframe.DataFrame: The filtered data, or None if an error occurred.
+    """
     try:
         logging.info("Applying custom filters for AN_PROGNOSE_STATUS and AB_PROGNOSE_STATUS.")
         with ProgressBar():
@@ -140,7 +192,15 @@ def _apply_filters(data, filters):
     return data
 
 def _preprocess_data(data):
-    """Preprocess the data by filling missing values and inferring object types."""
+    """
+    Preprocess the data by filling missing values and inferring object types.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data to be preprocessed.
+
+    Returns:
+    dask.dataframe.DataFrame: The preprocessed data, or None if an error occurred.
+    """
     try:
         logging.info("Filling missing values with NaN.")
         with ProgressBar():
@@ -151,6 +211,36 @@ def _preprocess_data(data):
     except Exception as e:
         logging.error(f"Error during data preprocessing: {e}")
         return None
+
+def _calculate_time_differences(data):
+    """
+    Calculate time differences between specified columns.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data for which time differences should be calculated.
+
+    Returns:
+    dask.dataframe.DataFrame: The data with calculated time differences, or None if an error occurred.
+    """
+    def calculate_time_difference(data, col1, col2, new_col_name):
+        try:
+            data[col1] = dd.to_datetime(data[col1], format='mixed', dayfirst=True)
+            data[col2] = dd.to_datetime(data[col2], format='mixed', dayfirst=True)
+            data[new_col_name] = (data[col1] - data[col2]).dt.total_seconds()
+        except Exception as e:
+            logging.error(f"Error calculating time difference for {new_col_name}: {e}")
+            return None
+        return data
+    
+    data = calculate_time_difference(data, 'ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS')
+    if data is None:
+        return None
+    
+    data = calculate_time_difference(data, 'ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
+    if data is None:
+        return None
+    
+    return data
 
 def save_processed_data(data, output_file_path):
     """
