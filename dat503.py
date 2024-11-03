@@ -7,7 +7,7 @@ from data_processing import load_and_preprocess_data
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
-import pandas as pd
+import dask.dataframe as dd
 
 # Configure logging
 def configure_logging():
@@ -21,10 +21,10 @@ def configure_logging():
 # Define constants
 BASE_URL = "https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/"
 TRAIN_FOLDER = os.path.join(os.path.dirname(__file__), 'data', 'train')
-FORCE_DOWNLOAD = True  # Set to True to download the data
+FORCE_DOWNLOAD = False  # Set to True to download the data
 NUM_MONTHS = 3  # Number of months to download
 TRAIN_FILTERS = {'LINIEN_TEXT': ['IC2', 'IC3']}
-OUTPUT_FILE_PATH = os.path.join(TRAIN_FOLDER, 'working', 'processed_data.csv')
+OUTPUT_FILE_PATH = os.path.join(TRAIN_FOLDER, 'working', 'processed_data.parquet')
 
 def remove_existing_data(folder):
     if os.path.exists(folder):
@@ -58,7 +58,7 @@ def main():
         exit(1)
 
     try:
-        data = pd.read_csv(processed_data_file)
+        data = dd.read_parquet(processed_data_file).compute()
     except Exception as e:
         logging.error(f"Error loading processed data file: {e}")
         exit(1)
