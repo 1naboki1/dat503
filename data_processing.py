@@ -8,6 +8,16 @@ from dask_ml.preprocessing import DummyEncoder
 import pandas as pd
 from tqdm import tqdm
 
+dtype_mapping = {
+    'LINIEN_ID': 'object', 
+    'BETREIBER_ABK': 'object',
+    'LINIEN_TEXT': 'object',
+    'BETRIEBSTAG': 'object',
+    'ANKUNFTSZEIT': 'object',
+    'AN_PROGNOSE': 'object',
+    'ABFAHRTSZEIT': 'object'
+}
+
 def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_columns, delimiter=';'):
     """
     Load and preprocess data from the specified folder.
@@ -58,7 +68,7 @@ def preprocess_data(data, filters, exclude_columns):
     if data is None:
         return None
         
-    data = _preprocess_data(data)
+    data = _fill_missing_and_infer_types(data)
     if data is None:
         return None
     
@@ -139,6 +149,25 @@ def _apply_filters(data, filters):
         print("\033[91m❌ Error applying custom filters.\033[0m")
         return None
     return data
+
+def _fill_missing_and_infer_types(data):
+    """
+    Fill missing values with NaN and change the data types of specific columns.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data to be processed.
+
+    Returns:
+    dask.dataframe.DataFrame: The processed data, or None if an error occurred.
+    """
+    try:
+        data = data.fillna(np.nan)
+        logging.info("Missing values filled with NaN.")
+        print("\033[92m✔ Filles missing values with NaN successfully.\033[0m")
+        return data
+    except Exception as e:
+        logging.error(f"Error during data processing: {e}")
+        return None
 
 def _calculate_time_differences(data):
     """
@@ -224,7 +253,7 @@ def load_data_into_dask_dataframe(data_files, delimiter):
         }
         
         with tqdm(total=len(data_files), desc="Loading CSV files") as pbar:
-            data = dd.read_csv(data_files, delimiter=delimiter, dtype=dtype, assume_missing=True, blocksize=None)
+            data = dd.read_csv(data_files, delimiter=delimiter, dtype=dtype_mapping, assume_missing=True, blocksize=None)
             pbar.update(len(data_files))
         
         logging.info("Data loaded into Dask DataFrame.")
@@ -259,27 +288,6 @@ def _encode_categorical_columns(data):
         logging.error(f"Error encoding columns: {e}")
         return None
     return data
-
-def _preprocess_data(data):
-    """
-    Preprocess the data by filling missing values and inferring object types.
-
-    Parameters:
-    data (dask.dataframe.DataFrame): The data to be preprocessed.
-
-    Returns:
-    dask.dataframe.DataFrame: The preprocessed data, or None if an error occurred.
-    """
-    try:
-        logging.info("Filling missing values with NaN.")
-        with ProgressBar():
-            data = data.fillna(np.nan)
-            data = data.map_partitions(lambda df: df.infer_objects(copy=False))
-        logging.info("Missing values filled with NaN and inferred object types.")
-        return data
-    except Exception as e:
-        logging.error(f"Error during data preprocessing: {e}")
-        return None
 
 def save_processed_data(data, output_file_path):
     """
