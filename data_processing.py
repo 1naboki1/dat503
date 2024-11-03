@@ -141,37 +141,37 @@ def _apply_filters(data, filters):
     return data
 
 def _calculate_time_differences(data):
-        """
-        Calculate time differences between specified columns.
+    """
+    Calculate time differences between specified columns.
 
-        Parameters:
-        data (dask.dataframe.DataFrame): The data for which time differences should be calculated.
+    Parameters:
+    data (dask.dataframe.DataFrame): The data for which time differences should be calculated.
 
-        Returns:
-        dask.dataframe.DataFrame: The data with calculated time differences, or None if an error occurred.
-        """
-        def calculate_time_difference(data, col1, col2, new_col_name):
-            try:
-                data[col1] = dd.to_datetime(data[col1], format='mixed', dayfirst=True)
-                data[col2] = dd.to_datetime(data[col2], format='mixed', dayfirst=True)
-                data[new_col_name] = (data[col1] - data[col2]).dt.total_seconds()
-            except Exception as e:
-                logging.error(f"Error calculating time difference for {new_col_name}: {e}")
-                return None
-            return data
-
-        with tqdm(total=2, desc="Calculating time differences") as pbar:
-            data = calculate_time_difference(data, 'ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS')
-            if data is None:
-                return None
-            pbar.update(1)
-            
-            data = calculate_time_difference(data, 'ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
-            if data is None:
-                return None
-            pbar.update(1)
-        
+    Returns:
+    dask.dataframe.DataFrame: The data with calculated time differences, or None if an error occurred.
+    """
+    def calculate_time_difference(data, col1, col2, new_col_name):
+        try:
+            data[col1] = dd.to_datetime(data[col1], format='mixed', dayfirst=True)
+            data[col2] = dd.to_datetime(data[col2], format='mixed', dayfirst=True)
+            data[new_col_name] = (data[col1] - data[col2]).dt.total_seconds()
+            logging.debug(f"Calculated {new_col_name} values: {data[new_col_name].head()}")
+            print(f"\033[92m✔ {new_col_name} calculated successfully.\033[0m")
+        except Exception as e:
+            logging.error(f"Error calculating time difference for {new_col_name}: {e}")
+            return None
         return data
+    
+    data = calculate_time_difference(data, 'ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS')
+    if data is None:
+        return None
+    
+    data = calculate_time_difference(data, 'ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
+    if data is None:
+        return None
+    
+    return data
+
 def save_data(data, output_file_path):
     """
     Save the processed data to a Parquet file.
@@ -280,36 +280,6 @@ def _preprocess_data(data):
     except Exception as e:
         logging.error(f"Error during data preprocessing: {e}")
         return None
-
-def _calculate_time_differences(data):
-    """
-    Calculate time differences between specified columns.
-
-    Parameters:
-    data (dask.dataframe.DataFrame): The data for which time differences should be calculated.
-
-    Returns:
-    dask.dataframe.DataFrame: The data with calculated time differences, or None if an error occurred.
-    """
-    def calculate_time_difference(data, col1, col2, new_col_name):
-        try:
-            data[col1] = dd.to_datetime(data[col1], format='mixed', dayfirst=True)
-            data[col2] = dd.to_datetime(data[col2], format='mixed', dayfirst=True)
-            data[new_col_name] = (data[col1] - data[col2]).dt.total_seconds()
-        except Exception as e:
-            logging.error(f"Error calculating time difference for {new_col_name}: {e}")
-            return None
-        return data
-    
-    data = calculate_time_difference(data, 'ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS')
-    if data is None:
-        return None
-    
-    data = calculate_time_difference(data, 'ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
-    if data is None:
-        return None
-    
-    return data
 
 def save_processed_data(data, output_file_path):
     """
