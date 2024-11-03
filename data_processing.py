@@ -25,13 +25,165 @@ def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_co
     logging.info(f"Starting to load data from {train_folder}")
     
     data_files = _get_csv_files(train_folder)
-    logging.info(f"Found {len(data_files)} CSV files to process.")
+    logging.debug(f"Found {len(data_files)} CSV files to process.")
     
     data = load_data_into_dask_dataframe(data_files, delimiter)
     if data is None:
         return None
+    print(f"\033[92m✔ {len(data_files)} files loaded successfully.\033[0m")
     
-    return preprocess_and_save_data(data, filters, exclude_columns, output_file_path)
+    data = preprocess_data(data, filters, exclude_columns)
+    if data is None:
+        return None
+
+    return save_data(data, output_file_path)
+
+def preprocess_data(data, filters, exclude_columns):
+    """
+    Preprocess the data by applying filters, excluding columns, and encoding categorical columns.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data to be processed.
+    return [entry.path for entry in os.scandir(folder) if entry.is_file() and entry.name.endswith('.csv')]
+    exclude_columns (list): A list of columns to exclude from the data.
+
+    Returns:
+    dask.dataframe.DataFrame: The preprocessed data, or None if an error occurred.
+    """
+    data = _exclude_columns(data, exclude_columns)
+    if data is None:
+        return None
+    
+    data = _apply_filters(data, filters)
+    if data is None:
+        return None
+        
+    data = _preprocess_data(data)
+    if data is None:
+        return None
+    
+    data = _calculate_time_differences(data)
+    if data is None:
+        return None
+    
+    data = _encode_categorical_columns(data)
+    if data is None:
+        return None
+    
+    return data
+
+def _exclude_columns(data, exclude_columns):
+    """
+    Exclude specified columns from the data.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data from which columns should be excluded.
+    exclude_columns (list): A list of columns to exclude.
+
+    Returns:
+    dask.dataframe.DataFrame: The data with specified columns excluded, or None if an error occurred.
+    """
+    try:
+        logging.debug(f"Excluding columns: {exclude_columns}")
+        with tqdm(total=len(exclude_columns), desc="Excluding columns") as pbar:
+            data = data.drop(columns=exclude_columns, errors='ignore')
+            pbar.update(len(exclude_columns))
+        logging.debug(f"Columns after exclusion: {data.columns}")
+        print(f"\033[92m✔ Columns excluded successfully: {exclude_columns}\033[0m")
+        return data
+    except Exception as e:
+        logging.error(f"Error excluding columns: {e}")
+        return None
+
+def _apply_filters(data, filters):
+    """
+    Apply filters to the data.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The data to be filtered.
+    filters (dict): A dictionary of filters to apply.
+
+    Returns:
+    dask.dataframe.DataFrame: The filtered data, or None if an error occurred.
+    """
+    try:
+        if filters:
+            for column, values in filters.items():
+                if not isinstance(values, list):
+                    values = [values]
+                logging.info(f"Applying filter: {column} in {values}")
+                try:
+                    if column in data.columns:
+                        data = data[data[column].isin(values)]
+                        logging.info(f"Filter applied on column: {column}")
+                    else:
+                        logging.debug(f"Column {column} does not exist in the data.")
+                        print("\033[91m❌ Column does not exist in the data.\033[0m")
+                        return None
+                except Exception as e:
+                    logging.debug(f"Error applying filter on column {column}: {e}")
+                    print("\033[91m❌ Error applying filter.\033[0m")
+                    return None
+
+        logging.info("Applying custom filters for AN_PROGNOSE_STATUS and AB_PROGNOSE_STATUS.")
+        data = data[(data["AN_PROGNOSE_STATUS"] == "REAL") & (data["AB_PROGNOSE_STATUS"] == "REAL")]
+        logging.info("Custom filters applied.")
+        
+        # Drop the columns after applying the filters
+        data = data.drop(columns=["AN_PROGNOSE_STATUS", "AB_PROGNOSE_STATUS"], errors='ignore')
+        logging.info("Dropped columns AN_PROGNOSE_STATUS and AB_PROGNOSE_STATUS.")
+        print("\033[92m✔ Filters applied successfully.\033[0m")
+        
+    except Exception as e:
+        logging.error(f"Error applying custom filters: {e}")
+        print("\033[91m❌ Error applying custom filters.\033[0m")
+        return None
+    return data
+
+def _calculate_time_differences(data):
+        """
+        Calculate time differences between specified columns.
+
+        Parameters:
+        data (dask.dataframe.DataFrame): The data for which time differences should be calculated.
+
+        Returns:
+        dask.dataframe.DataFrame: The data with calculated time differences, or None if an error occurred.
+        """
+        def calculate_time_difference(data, col1, col2, new_col_name):
+            try:
+                data[col1] = dd.to_datetime(data[col1], format='mixed', dayfirst=True)
+                data[col2] = dd.to_datetime(data[col2], format='mixed', dayfirst=True)
+                data[new_col_name] = (data[col1] - data[col2]).dt.total_seconds()
+            except Exception as e:
+                logging.error(f"Error calculating time difference for {new_col_name}: {e}")
+                return None
+            return data
+
+        with tqdm(total=2, desc="Calculating time differences") as pbar:
+            data = calculate_time_difference(data, 'ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS')
+            if data is None:
+                return None
+            pbar.update(1)
+            
+            data = calculate_time_difference(data, 'ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
+            if data is None:
+                return None
+            pbar.update(1)
+        
+        return data
+def save_data(data, output_file_path):
+    """
+    Save the processed data to a Parquet file.
+
+    Parameters:
+    data (dask.dataframe.DataFrame): The processed data to be saved.
+    output_file_path (str): The file path where the data should be saved.
+
+    Returns:
+    str: The path to the saved Parquet file, or None if an error occurred.
+    """
+    return save_processed_data(data, output_file_path)
 
 def _get_csv_files(folder):
     """
@@ -82,26 +234,6 @@ def load_data_into_dask_dataframe(data_files, delimiter):
         logging.error(f"Error loading data into Dask DataFrame from files {data_files}: {e}")
     return None
 
-def _exclude_columns(data, exclude_columns):
-    """
-    Exclude specified columns from the data.
-
-    Parameters:
-    data (dask.dataframe.DataFrame): The data from which columns should be excluded.
-    exclude_columns (list): A list of columns to exclude.
-
-    Returns:
-    dask.dataframe.DataFrame: The data with specified columns excluded, or None if an error occurred.
-    """
-    try:
-        logging.info(f"Excluding columns: {exclude_columns}")
-        data = data.drop(columns=exclude_columns, errors='ignore')
-        logging.info(f"Columns after exclusion: {data.columns}")
-        return data
-    except Exception as e:
-        logging.error(f"Error excluding columns: {e}")
-        return None
-
 def _encode_categorical_columns(data):
     """
     Encode all columns to int64 using Dask's parallel processing.
@@ -126,79 +258,6 @@ def _encode_categorical_columns(data):
     except Exception as e:
         logging.error(f"Error encoding columns: {e}")
         return None
-    return data
-
-def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
-    """
-    Preprocess and save data to a Parquet file.
-
-    Parameters:
-    data (dask.dataframe.DataFrame): The data to be processed.
-    filters (dict): A dictionary of filters to apply to the data.
-    exclude_columns (list): A list of columns to exclude from the data.
-    output_file_path (str): The file path where the processed data should be saved.
-
-    Returns:
-    str: The path to the saved Parquet file, or None if an error occurred.
-    """
-    data = _apply_filters(data, filters)
-    if data is None:
-        return None
-    
-    data = _exclude_columns(data, exclude_columns)
-    if data is None:
-        return None
-    
-    data = _preprocess_data(data)
-    if data is None:
-        return None
-    
-    data = _calculate_time_differences(data)
-    if data is None:
-        return None
-    
-    data = _encode_categorical_columns(data)
-    if data is None:
-        return None
-    
-    return save_processed_data(data, output_file_path)
-
-def _apply_filters(data, filters):
-    """
-    Apply filters to the data.
-
-    Parameters:
-    data (dask.dataframe.DataFrame): The data to be filtered.
-    filters (dict): A dictionary of filters to apply.
-
-    Returns:
-    dask.dataframe.DataFrame: The filtered data, or None if an error occurred.
-    """
-    try:
-        logging.info("Applying custom filters for AN_PROGNOSE_STATUS and AB_PROGNOSE_STATUS.")
-        with ProgressBar():
-            data = data[(data["AN_PROGNOSE_STATUS"] == "REAL") & (data["AB_PROGNOSE_STATUS"] == "REAL")]
-        logging.info("Custom filters applied.")
-    except Exception as e:
-        logging.error(f"Error applying custom filters: {e}")
-        return None
-
-    if filters:
-        for column, values in filters.items():
-            if not isinstance(values, list):
-                values = [values]
-            logging.info(f"Applying filter: {column} in {values}")
-            try:
-                if column in data.columns:
-                    with ProgressBar():
-                        data = data[data[column].isin(values)]
-                    logging.info(f"Filter applied on column: {column}")
-                else:
-                    logging.error(f"Column {column} does not exist in the data.")
-                    return None
-            except Exception as e:
-                logging.error(f"Error applying filter on column {column}: {e}")
-                return None
     return data
 
 def _preprocess_data(data):
