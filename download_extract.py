@@ -3,6 +3,7 @@ from zipfile import ZipFile
 from io import BytesIO
 from tqdm import tqdm
 import logging
+import concurrent.futures
 
 def download_extract(base_url, target_folder, month):
     file_url = f"{base_url}ist-daten-{month}.zip"
@@ -26,8 +27,12 @@ def download_extract(base_url, target_folder, month):
         
         # Progress bar for extracting
         with ZipFile(file_content) as zip_file:
-            for file in tqdm(zip_file.namelist(), desc="Extracting"):
-                zip_file.extract(file, target_folder)
+            file_list = zip_file.namelist()
+            with tqdm(total=len(file_list), desc="Extracting") as pbar:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    futures = [executor.submit(zip_file.extract, file, target_folder) for file in file_list]
+                    for future in concurrent.futures.as_completed(futures):
+                        pbar.update(1)
         
         logging.info(f"Downloaded and extracted: {file_url}")
     else:

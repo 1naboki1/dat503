@@ -1,104 +1,286 @@
-2024-11-03 00:04:40,398 - INFO - Downloaded and extracted: https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/ist-daten-2024-11.zip
-2024-11-03 00:05:37,106 - INFO - Downloaded and extracted: https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/ist-daten-2024-10.zip
-2024-11-03 00:05:37,120 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-27_istdaten.csv
-2024-11-03 00:05:42,599 - INFO - Memory usage: RSS=232.45 MB, VMS=2274.93 MB
-2024-11-03 00:05:43,802 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-12_istdaten.csv
-2024-11-03 00:05:48,154 - INFO - Memory usage: RSS=232.71 MB, VMS=2278.84 MB
-2024-11-03 00:05:53,758 - INFO - Memory usage: RSS=232.96 MB, VMS=2278.84 MB
-2024-11-03 00:05:55,031 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-31_istdaten.csv
-2024-11-03 00:05:59,449 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:05,207 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:07,105 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-16_istdaten.csv
-2024-11-03 00:06:11,093 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:16,875 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:21,468 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-10_istdaten.csv
-2024-11-03 00:06:22,925 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:28,980 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:34,925 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:35,952 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-02_istdaten.csv
-2024-11-03 00:06:40,363 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:45,658 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:49,131 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-28_istdaten.csv
-2024-11-03 00:06:51,030 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:06:56,292 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:00,215 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-14_istdaten.csv
-2024-11-03 00:07:01,781 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:07,039 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:12,403 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:13,168 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-26_istdaten.csv
-2024-11-03 00:07:17,699 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:21,707 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-11_istdaten.csv
-2024-11-03 00:07:23,042 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:28,365 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:33,782 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:35,086 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-30_istdaten.csv
-2024-11-03 00:07:39,136 - INFO - Memory usage: RSS=232.96 MB, VMS=2279.34 MB
-2024-11-03 00:07:44,445 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:07:46,222 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-18_istdaten.csv
-2024-11-03 00:07:49,837 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:07:55,091 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:07:59,556 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-05_istdaten.csv
-2024-11-03 00:08:00,550 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:05,791 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:10,221 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-23_istdaten.csv
-2024-11-03 00:08:11,148 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:16,478 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:21,843 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:23,132 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-11-01_istdaten.csv
-2024-11-03 00:08:27,194 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:32,605 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:33,887 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-06_istdaten.csv
-2024-11-03 00:08:37,898 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:42,163 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-07_istdaten.csv
-2024-11-03 00:08:43,273 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:48,563 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:53,908 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:08:55,176 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-21_istdaten.csv
-2024-11-03 00:08:59,278 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:04,532 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:08,050 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-13_istdaten.csv
-2024-11-03 00:09:09,938 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:15,246 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:16,366 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-29_istdaten.csv
-2024-11-03 00:09:20,639 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:25,969 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:27,382 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-24_istdaten.csv
-2024-11-03 00:09:31,403 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:36,626 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:40,237 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-19_istdaten.csv
-2024-11-03 00:09:41,995 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:47,276 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:51,000 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-08_istdaten.csv
-2024-11-03 00:09:52,689 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:09:57,991 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:03,497 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:04,247 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-09_istdaten.csv
-2024-11-03 00:10:08,831 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:14,053 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:17,347 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-01_istdaten.csv
-2024-11-03 00:10:19,602 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:24,828 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:30,342 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:30,518 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-17_istdaten.csv
-2024-11-03 00:10:35,704 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:40,990 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:43,585 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-25_istdaten.csv
-2024-11-03 00:10:46,474 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:51,893 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:10:54,999 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-20_istdaten.csv
-2024-11-03 00:10:57,421 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:02,844 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:03,393 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-03_istdaten.csv
-2024-11-03 00:11:08,202 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:13,444 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:16,588 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-15_istdaten.csv
-2024-11-03 00:11:18,955 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:24,151 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:29,597 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:29,611 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-22_istdaten.csv
-2024-11-03 00:11:34,953 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:40,220 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:42,489 - INFO - Processing file: /home/vmk0863/dat503/data/train/2024-10-04_istdaten.csv
-2024-11-03 00:11:45,659 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:50,875 - INFO - Memory usage: RSS=233.22 MB, VMS=2279.34 MB
-2024-11-03 00:11:55,834 - INFO - Successfully processed and saved data to a CSV file.
+2024-11-03 00:54:14,979 - INFO - Downloaded and extracted: https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/ist-daten-2024-11.zip
+2024-11-03 00:55:04,891 - INFO - Downloaded and extracted: https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/ist-daten-2024-10.zip
+2024-11-03 00:55:04,903 - INFO - Starting to load data from /home/vmk0863/dat503/data/train
+2024-11-03 00:55:04,903 - INFO - Found 32 CSV files to process.
+2024-11-03 00:55:04,916 - INFO - Data loaded into Dask DataFrame.
+2024-11-03 00:55:04,916 - INFO - Missing values filled with 0.
+2024-11-03 00:55:04,916 - INFO - Saving processed data to /home/vmk0863/dat503/data/train/working/processed_data.csv
+2024-11-03 00:55:12,635 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:13,001 - ERROR - Error saving processed data to CSV file: Mismatched dtypes found in `pd.read_csv`/`pd.read_table`.
+
++-----------+--------+----------+
+| Column    | Found  | Expected |
++-----------+--------+----------+
+| LINIEN_ID | object | float64  |
++-----------+--------+----------+
+
+The following columns also raised exceptions on conversion:
+
+- LINIEN_ID
+  ValueError("could not convert string to float: '85:818:144'")
+
+Usually this is due to dask's dtype inference failing, and
+*may* be fixed by specifying dtypes manually by adding:
+
+dtype={'LINIEN_ID': 'object'}
+
+to the call to `read_csv`/`read_table`.
+2024-11-03 00:55:13,206 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:13,238 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:13,367 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:13,433 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:13,543 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:14,060 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:14,191 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:14,231 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:14,244 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:14,255 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:14,287 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:14,667 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:14,998 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,044 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,051 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,231 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,450 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,560 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,595 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,750 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,803 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:55:15,878 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:56:24,272 - INFO - Downloaded and extracted: https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/ist-daten-2024-11.zip
+2024-11-03 00:57:19,559 - INFO - Downloaded and extracted: https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/ist-daten-2024-10.zip
+2024-11-03 00:57:19,570 - INFO - Starting to load data from /home/vmk0863/dat503/data/train
+2024-11-03 00:57:19,570 - INFO - Found 32 CSV files to process.
+2024-11-03 00:57:19,584 - INFO - Data loaded into Dask DataFrame.
+2024-11-03 00:57:19,584 - INFO - Missing values filled with 0.
+2024-11-03 00:57:19,584 - INFO - Saving processed data to /home/vmk0863/dat503/data/train/working/processed_data.csv
+2024-11-03 00:57:27,138 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:27,593 - ERROR - Error saving processed data to CSV file: Mismatched dtypes found in `pd.read_csv`/`pd.read_table`.
+
++-----------+--------+----------+
+| Column    | Found  | Expected |
++-----------+--------+----------+
+| LINIEN_ID | object | float64  |
+| UMLAUF_ID | object | float64  |
++-----------+--------+----------+
+
+The following columns also raised exceptions on conversion:
+
+- LINIEN_ID
+  ValueError("could not convert string to float: '85:849:080'")
+- UMLAUF_ID
+  ValueError("could not convert string to float: 'BUS.701'")
+
+Usually this is due to dask's dtype inference failing, and
+*may* be fixed by specifying dtypes manually by adding:
+
+dtype={'LINIEN_ID': 'object',
+       'UMLAUF_ID': 'object'}
+
+to the call to `read_csv`/`read_table`.
+2024-11-03 00:57:27,685 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:28,138 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:28,180 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:28,524 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:28,589 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:28,758 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:28,846 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:28,858 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:28,918 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:29,051 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:29,117 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:29,450 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:29,571 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:29,645 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:29,745 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:29,880 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:30,005 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:30,293 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:30,749 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:30,754 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:57:30,993 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:58:25,537 - INFO - Downloaded and extracted: https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/ist-daten-2024-11.zip
+2024-11-03 00:59:20,411 - INFO - Downloaded and extracted: https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/ist-daten-2024-10.zip
+2024-11-03 00:59:20,421 - INFO - Starting to load data from /home/vmk0863/dat503/data/train
+2024-11-03 00:59:20,422 - INFO - Found 32 CSV files to process.
+2024-11-03 00:59:20,435 - INFO - Data loaded into Dask DataFrame.
+2024-11-03 00:59:20,435 - INFO - Missing values filled with 0.
+2024-11-03 00:59:20,436 - INFO - Saving processed data to /home/vmk0863/dat503/data/train/working/processed_data.csv
+2024-11-03 00:59:28,397 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:28,678 - ERROR - Error saving processed data to CSV file: Mismatched dtypes found in `pd.read_csv`/`pd.read_table`.
+
++-----------+--------+----------+
+| Column    | Found  | Expected |
++-----------+--------+----------+
+| LINIEN_ID | object | float64  |
++-----------+--------+----------+
+
+The following columns also raised exceptions on conversion:
+
+- LINIEN_ID
+  ValueError("could not convert string to float: '85:823:14'")
+
+Usually this is due to dask's dtype inference failing, and
+*may* be fixed by specifying dtypes manually by adding:
+
+dtype={'LINIEN_ID': 'object'}
+
+to the call to `read_csv`/`read_table`.
+2024-11-03 00:59:28,987 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:29,028 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:29,120 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:29,143 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:29,152 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:29,159 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:29,661 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:29,725 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,152 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,167 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,223 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (6,7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,237 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,242 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,361 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,574 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,679 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:30,950 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:31,179 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:31,182 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:31,360 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:31,543 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+
+2024-11-03 00:59:31,588 - WARNING - /home/vmk0863/.local/lib/python3.12/site-packages/dask/dataframe/io/csv.py:195: DtypeWarning: Columns (7,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = reader(bio, **kwargs)
+

@@ -1,25 +1,18 @@
 import os
 import shutil
 import logging
-import warnings
 from datetime import datetime, timedelta
 from download_extract import download_extract
 from data_processing import load_and_preprocess_data
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
+import pandas as pd
 
 # Configure logging
 logging.basicConfig(filename='dat503.log', level=logging.INFO, 
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logging.captureWarnings(True)
-
-# Custom warning handler
-def custom_warning_handler(message, category, filename, lineno, file=None, line=None):
-    logging.warning(f'{filename}:{lineno}: {category.__name__}: {message}')
-
-# Configure warnings to use the custom handler
-warnings.showwarning = custom_warning_handler
 
 # Define the base URL and the target folder
 base_url = "https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/"
@@ -46,7 +39,10 @@ else:
     logging.info("Skipping download and extraction as force_download is set to False.")
 
 # Load and preprocess the data
-data = load_and_preprocess_data(train_folder)
+processed_data_file = load_and_preprocess_data(train_folder)
+
+# Load the processed data
+data = pd.read_csv(processed_data_file)
 
 if data is not None:
     # Define features and target variable
