@@ -3,11 +3,9 @@ import logging
 import numpy as np
 import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
-import pandas as pd
 import pyarrow as pa
-
-# Set pandas option to avoid silent downcasting
-pd.set_option('future.no_silent_downcasting', True)
+from dask_ml.preprocessing import DummyEncoder
+import pandas as pd
 
 def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_columns, delimiter=';'):
     """Load and preprocess data from the specified folder."""
@@ -31,7 +29,13 @@ def _load_data(data_files, delimiter):
     try:
         with ProgressBar():
             logging.info("Loading data into Dask DataFrame.")
-            data = dd.read_csv(data_files, delimiter=delimiter, dtype={'LINIEN_ID': 'object', 'UMLAUF_ID': 'object'}, low_memory=False)
+            data = dd.read_csv(data_files, delimiter=delimiter, dtype={
+                'LINIEN_ID': 'object', 
+                'UMLAUF_ID': 'object',
+                'BETREIBER_ABK': 'object',
+                'LINIEN_TEXT': 'object',
+                'BETRIEBSTAG': 'object'
+            }, low_memory=False)
         logging.info("Data loaded into Dask DataFrame.")
         logging.info(f"Data columns: {data.columns}")
         return data
@@ -50,6 +54,24 @@ def _exclude_columns(data, exclude_columns):
         logging.error(f"Error excluding columns: {e}")
         return None
 
+def _encode_categorical_columns(data):
+    """Encode all columns to int64 using Dask's parallel processing."""
+    try:
+        logging.info("Encoding all columns to int64.")
+        
+        def encode_partition(df):
+            for column in df.columns:
+                df[column] = df[column].astype('category').cat.codes
+                df[column] = df[column].astype('int64')
+            return df
+        
+        data = data.map_partitions(encode_partition)
+        logging.info("All columns encoded to int64.")
+    except Exception as e:
+        logging.error(f"Error encoding columns: {e}")
+        return None
+    return data
+
 def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
     """Preprocess and save data to a Parquet file."""
     data = _apply_filters(data, filters)
@@ -61,6 +83,11 @@ def preprocess_and_save_data(data, filters, exclude_columns, output_file_path):
         return None
     
     data = _preprocess_data(data)
+    if data is None:
+        return None
+    
+    # Add encoding step
+    data = _encode_categorical_columns(data)
     if data is None:
         return None
     
@@ -114,24 +141,30 @@ def _save_data(data, output_file_path):
         logging.info(f"Saving processed data to {output_file_path}")
         with ProgressBar():
             data = data.repartition(npartitions=20)
-            schema = pa.schema([
-                ('BETRIEBSTAG', pa.string()),
-                ('FAHRT_BEZEICHNER', pa.string()),
-                ('BETREIBER_ABK', pa.string()),
-                ('LINIEN_ID', pa.string()),
-                ('LINIEN_TEXT', pa.string()),
-                ('ZUSATZFAHRT_TF', pa.bool_()),
-                ('FAELLT_AUS_TF', pa.bool_()),
-                ('BPUIC', pa.int64()),
-                ('ANKUNFTSZEIT', pa.string()),
-                ('AN_PROGNOSE', pa.string()),
-                ('ABFAHRTSZEIT', pa.string()),
-                ('AB_PROGNOSE', pa.string()),
-                ('DURCHFAHRT_TF', pa.bool_()),
-                ('__null_dask_index__', pa.int64())
-            ])
+            
+            # Create dynamic schema based on the encoded columns
+            column_types = data.dtypes
+            schema_fields = []
+            for col, dtype in column_types.items():
+                if pd.api.types.is_bool_dtype(dtype):
+                    pa_type = pa.bool_()
+                elif pd.api.types.is_integer_dtype(dtype):
+                    pa_type = pa.int64()
+                elif pd.api.types.is_float_dtype(dtype):
+                    pa_type = pa.float64()
+                else:
+                    pa_type = pa.string()
+                schema_fields.append((col, pa_type))
+            
+            schema = pa.schema(schema_fields)
+            
             output_file_path = output_file_path.replace('.csv', '.parquet')
-            data.to_parquet(output_file_path, engine='pyarrow', compression='snappy', schema=schema, write_metadata_file=False)
+            data.to_parquet(output_file_path, 
+                          engine='pyarrow', 
+                          compression='snappy', 
+                          schema=schema, 
+                          write_metadata_file=False)
+            
         logging.info("Successfully processed and saved data to a Parquet file.")
         return output_file_path
     except Exception as e:
