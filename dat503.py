@@ -23,8 +23,9 @@ BASE_URL = "https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive
 TRAIN_FOLDER = os.path.join(os.path.dirname(__file__), 'data', 'train')
 FORCE_DOWNLOAD = False  # Set to True to download the data
 NUM_MONTHS = 3  # Number of months to download
-TRAIN_FILTERS = {'LINIEN_TEXT': ['IC2', 'IC3']}
-OUTPUT_FILE_PATH = os.path.join(TRAIN_FOLDER, 'working', 'processed_data.parquet')
+TRAIN_FILTERS = {'LINIEN_TEXT': ['IC2', 'IC3', 'IC5', 'IC6', 'IC8', 'IC21']}  # IC4 is cross-border and not in dataset
+TRAIN_OUTPUT_FILE_PATH = os.path.join(TRAIN_FOLDER, 'working', 'processed_data.parquet')
+TRAIN_EXCLUDE_COLUMNS = ['PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT']  # Columns to exclude from processing
 
 def remove_existing_data(folder):
     if os.path.exists(folder):
@@ -51,7 +52,7 @@ def main():
     months = calculate_months(NUM_MONTHS)
     download_data_if_needed(BASE_URL, TRAIN_FOLDER, months, FORCE_DOWNLOAD)
 
-    processed_data_file = load_and_preprocess_data(TRAIN_FOLDER, TRAIN_FILTERS, OUTPUT_FILE_PATH)
+    processed_data_file = load_and_preprocess_data(TRAIN_FOLDER, TRAIN_FILTERS, TRAIN_OUTPUT_FILE_PATH, TRAIN_EXCLUDE_COLUMNS)
 
     if processed_data_file is None:
         logging.error("Processed data file is None. Exiting.")

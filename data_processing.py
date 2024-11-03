@@ -9,13 +9,17 @@ import pyarrow as pa
 # Set pandas option to avoid silent downcasting
 pd.set_option('future.no_silent_downcasting', True)
 
-def load_and_preprocess_data(train_folder, filters, output_file_path, delimiter=';'):
+def load_and_preprocess_data(train_folder, filters, output_file_path, exclude_columns, delimiter=';'):
     logging.info(f"Starting to load data from {train_folder}")
     
     data_files = _get_csv_files(train_folder)
     logging.info(f"Found {len(data_files)} CSV files to process.")
     
     data = _load_data(data_files, delimiter)
+    if data is None:
+        return None
+    
+    data = _exclude_columns(data, exclude_columns)
     if data is None:
         return None
     
@@ -34,6 +38,16 @@ def _load_data(data_files, delimiter):
         return data
     except Exception as e:
         logging.error(f"Error loading data into Dask DataFrame: {e}")
+        return None
+
+def _exclude_columns(data, exclude_columns):
+    try:
+        logging.info(f"Excluding columns: {exclude_columns}")
+        data = data.drop(columns=exclude_columns, errors='ignore')
+        logging.info(f"Columns after exclusion: {data.columns}")
+        return data
+    except Exception as e:
+        logging.error(f"Error excluding columns: {e}")
         return None
 
 def preprocess_and_save_data(data, filters, output_file_path):
@@ -83,19 +97,14 @@ def _save_data(data, output_file_path):
         logging.info(f"Saving processed data to {output_file_path}")
         with ProgressBar():
             # Increase the number of partitions for parallel writing
-            data = data.repartition(npartitions=10)
+            data = data.repartition(npartitions=20)
             # Define the schema for the Parquet file
             schema = pa.schema([
                 ('BETRIEBSTAG', pa.string()),
                 ('FAHRT_BEZEICHNER', pa.string()),
-                ('BETREIBER_ID', pa.string()),
                 ('BETREIBER_ABK', pa.string()),
-                ('BETREIBER_NAME', pa.string()),
-                ('PRODUKT_ID', pa.string()),
                 ('LINIEN_ID', pa.string()),
                 ('LINIEN_TEXT', pa.string()),
-                ('UMLAUF_ID', pa.string()),
-                ('VERKEHRSMITTEL_TEXT', pa.string()),
                 ('ZUSATZFAHRT_TF', pa.bool_()),
                 ('FAELLT_AUS_TF', pa.bool_()),
                 ('BPUIC', pa.int64()),
@@ -111,7 +120,7 @@ def _save_data(data, output_file_path):
             ])
             # Save data in Parquet format for better performance
             output_file_path = output_file_path.replace('.csv', '.parquet')
-            data.to_parquet(output_file_path, engine='pyarrow', compression='snappy', schema=schema)
+            data.to_parquet(output_file_path, engine='pyarrow', compression='snappy', schema=schema, write_metadata_file=False)
         logging.info("Successfully processed and saved data to a Parquet file.")
         return output_file_path
     except Exception as e:
