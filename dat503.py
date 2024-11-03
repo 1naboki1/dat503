@@ -21,6 +21,7 @@ def configure_logging():
 # Define constants
 BASE_URL = "https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/"
 TRAIN_FOLDER = os.path.join(os.path.dirname(__file__), 'data', 'train')
+#FORCE_DOWNLOAD = True  # Set to True to download the data / just execute this command on the first run
 FORCE_DOWNLOAD = False  # Set to True to download the data
 NUM_MONTHS = 3  # Number of months to download
 TRAIN_FILTERS = {'LINIEN_TEXT': ['IC2', 'IC3', 'IC5', 'IC6', 'IC8', 'IC21']}  # IC4 is cross-border and not in dataset
