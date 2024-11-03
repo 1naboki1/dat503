@@ -4,6 +4,7 @@ import numpy as np
 import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
 import pandas as pd
+import pyarrow as pa
 
 # Set pandas option to avoid silent downcasting
 pd.set_option('future.no_silent_downcasting', True)
@@ -81,9 +82,38 @@ def _save_data(data, output_file_path):
     try:
         logging.info(f"Saving processed data to {output_file_path}")
         with ProgressBar():
-            data.to_csv(output_file_path, single_file=True, index=False)
-        logging.info("Successfully processed and saved data to a CSV file.")
+            # Increase the number of partitions for parallel writing
+            data = data.repartition(npartitions=10)
+            # Define the schema for the Parquet file
+            schema = pa.schema([
+                ('BETRIEBSTAG', pa.string()),
+                ('FAHRT_BEZEICHNER', pa.string()),
+                ('BETREIBER_ID', pa.string()),
+                ('BETREIBER_ABK', pa.string()),
+                ('BETREIBER_NAME', pa.string()),
+                ('PRODUKT_ID', pa.string()),
+                ('LINIEN_ID', pa.string()),
+                ('LINIEN_TEXT', pa.string()),
+                ('UMLAUF_ID', pa.string()),
+                ('VERKEHRSMITTEL_TEXT', pa.string()),
+                ('ZUSATZFAHRT_TF', pa.bool_()),
+                ('FAELLT_AUS_TF', pa.bool_()),
+                ('BPUIC', pa.int64()),
+                ('HALTESTELLEN_NAME', pa.string()),
+                ('ANKUNFTSZEIT', pa.string()),
+                ('AN_PROGNOSE', pa.string()),
+                ('AN_PROGNOSE_STATUS', pa.string()),
+                ('ABFAHRTSZEIT', pa.string()),
+                ('AB_PROGNOSE', pa.string()),
+                ('AB_PROGNOSE_STATUS', pa.string()),
+                ('DURCHFAHRT_TF', pa.bool_()),
+                ('__null_dask_index__', pa.int64())
+            ])
+            # Save data in Parquet format for better performance
+            output_file_path = output_file_path.replace('.csv', '.parquet')
+            data.to_parquet(output_file_path, engine='pyarrow', compression='snappy', schema=schema)
+        logging.info("Successfully processed and saved data to a Parquet file.")
         return output_file_path
     except Exception as e:
-        logging.error(f"Error saving processed data to CSV file: {e}")
+        logging.error(f"Error saving processed data to Parquet file: {e}")
         return None
