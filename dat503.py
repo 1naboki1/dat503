@@ -8,12 +8,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import dask.dataframe as dd
+from dask.distributed import Client
 
 def configure_logging():
     """Configure logging settings."""
     logging.basicConfig(
         filename='dat503.log',
-        level=logging.INFO,
+        level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - %(message)s - %(filename)s:%(lineno)d',
         filemode='w'  # Overwrite the log file on each run
     )
@@ -22,12 +23,11 @@ def configure_logging():
 # Define constants
 BASE_URL = "https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive/"
 TRAIN_FOLDER = os.path.join(os.path.dirname(__file__), 'data', 'train')
-#FORCE_DOWNLOAD = True  # Set to True to download the data / just execute this command on the first run
 FORCE_DOWNLOAD = False  # Set to True to download the data
 NUM_MONTHS = 3  # Number of months to download
 TRAIN_FILTERS = {'LINIEN_TEXT': ['IC2', 'IC3', 'IC5', 'IC6', 'IC8', 'IC21']}  # IC4 is cross-border and not in dataset
 TRAIN_OUTPUT_FILE_PATH = os.path.join(TRAIN_FOLDER, 'working', 'processed_data.parquet')
-TRAIN_EXCLUDE_COLUMNS = ['PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT', 'AN_PROGNOSE_STATUS', 'AB_PROGNOSE_STATUS', 'HALTESTELLEN_NAME']  # Columns to exclude from processing
+TRAIN_EXCLUDE_COLUMNS = ['PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT', 'HALTESTELLEN_NAME']  # Columns to exclude from processing
 
 def remove_existing_data(folder):
     """Remove existing data in the specified folder."""
@@ -87,4 +87,13 @@ def main():
         exit(1)
 
 if __name__ == "__main__":
-    main()
+    configure_logging()
+    
+    # Initialize Dask client
+    client = Client(n_workers=4, threads_per_worker=1, memory_limit='6GB')
+    
+    try:
+        main()
+    finally:
+        # Ensure the Dask client is properly closed
+        client.close()
