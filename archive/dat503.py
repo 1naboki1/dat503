@@ -27,7 +27,7 @@ FORCE_DOWNLOAD = False  # Set to True to download the data
 NUM_MONTHS = 3  # Number of months to download
 TRAIN_FILTERS = {'LINIEN_TEXT': ['IC2', 'IC3', 'IC5', 'IC6', 'IC8', 'IC21']}  # IC4 is cross-border and not in dataset
 TRAIN_OUTPUT_FILE_PATH = os.path.join(TRAIN_FOLDER, 'working', 'processed_data.parquet')
-TRAIN_EXCLUDE_COLUMNS = ['PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT', 'HALTESTELLEN_NAME']  # Columns to exclude from processing
+TRAIN_EXCLUDE_COLUMNS = ['PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT', 'HALTESTELLEN_NAME', 'BETRIEBSTAG']  # Columns to exclude from processing
 
 def remove_existing_data(folder):
     """
@@ -124,12 +124,4 @@ def main():
 
 if __name__ == "__main__":
     configure_logging()
-    
-    # Initialize Dask client
-    client = Client(n_workers=4, threads_per_worker=1, memory_limit='6GB')
-    
-    try:
-        main()
-    finally:
-        # Ensure the Dask client is properly closed
-        client.close()
+    main()

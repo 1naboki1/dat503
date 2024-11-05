@@ -6,6 +6,7 @@ import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
 from dask_ml.preprocessing import DummyEncoder
 from tqdm import tqdm
+import gc
 
 def load_and_preprocess_data(train_folder, train_filters, output_file_path, exclude_columns, delimiter=';'):
     """
@@ -30,25 +31,40 @@ def load_and_preprocess_data(train_folder, train_filters, output_file_path, excl
         return None
     print(f"\033[92m✔ {len(data_files)} files loaded successfully.\033[0m")
 
+    gc.collect()
+
     data = _apply_filters(data, train_filters)
+    data = data.persist()
     if data is None:
         return None
     
+    gc.collect()
+
     data = _fill_missing(data)
+    data = data.persist()
     if data is None:
         return None
     
+    gc.collect()
+
     data = _calculate_time_differences(data)
+    data = data.persist()
     if data is None:
         return None
     
-    data = _transform_betriebstag(data)
+    gc.collect()
+
+    data = _convert_dates(data)
+    data = data.persist()
+    gc.collect()
     if data is None:
         return None
     
     #data = preprocess_data(data)
     #if data is None:
         #return None
+    
+    print(data.head())
 
     return _save_data(data, output_file_path)
 
@@ -68,8 +84,9 @@ def load_and_preprocess_data(train_folder, train_filters, output_file_path, excl
     data = _encode_categorical_columns(data)
     if data is None:
         return None
-    
-    return data"""
+
+    return _save_data(data, output_file_path)
+    """
 
 def _get_csv_files(folder):
     """
@@ -137,6 +154,7 @@ def _load_data_into_dask_dataframe(data_files, delimiter, exclude_columns):
         logging.debug(f"Total number of rows across all files: {total_rows}")
         
         data = dd.concat(data_list, axis=0)
+        gc.collect()
 
         logging.debug(f"Total partitions: {data.npartitions}")
         logging.debug(f"Columns: {data.columns}")
@@ -277,7 +295,7 @@ def _encode_categorical_columns(data):
         return None
     return data
 
-def _transform_betriebstag(data):
+def _convert_dates(data):
     """
     Extract day, month, year, and day of the week from the BETRIEBSTAG column.
 
@@ -287,25 +305,31 @@ def _transform_betriebstag(data):
     Returns:
     dask.dataframe.DataFrame: The processed data, or None if an error occurred.
     """
-    try:
-        data['BETRIEBSTAG'] = dd.to_datetime(data['BETRIEBSTAG'], errors='coerce', dayfirst=True)
-        data['DAY'] = data['BETRIEBSTAG'].dt.day
-        data['MONTH'] = data['BETRIEBSTAG'].dt.month
-        data['YEAR'] = data['BETRIEBSTAG'].dt.year
-        data['DAY_OF_WEEK'] = data['BETRIEBSTAG'].dt.dayofweek
-        logging.info("Extracted day, month, year, and day of the week from BETRIEBSTAG column.")
-        data = data.drop(columns=['BETRIEBSTAG'], errors='ignore')
+    try:        
+        # Define a list of timestamp columns to process
+        timestamp_columns = ['ANKUNFTSZEIT', 'AN_PROGNOSE', 'ABFAHRTSZEIT', 'AB_PROGNOSE']
+
+        for col in timestamp_columns:
+            # Convert to datetime
+            data[col] = dd.to_datetime(data[col], errors='coerce', unit='ms')
+            # Extract components
+            data[f'{col}_DAY'] = data[col].dt.day
+            data[f'{col}_MONTH'] = data[col].dt.month
+            data[f'{col}_YEAR'] = data[col].dt.year
+            data[f'{col}_DAY_OF_WEEK'] = data[col].dt.dayofweek
+            data[f'{col}_HOUR'] = data[col].dt.hour
+            data[f'{col}_MINUTE'] = data[col].dt.minute
+            print(f"\033[92m✔ {col} transformed successfully.\033[0m")
+            logging.info(f"Extracted day, month, year, day of the week, hour, and minute from {col} column.")
+            data = data.drop(columns=[col], errors='ignore')
+            logging.info(f"Dropped column {col} after extracting date components.")
+            print(data.head())
+            print(list(data.columns))
+            gc.collect()
     except Exception as e:
         logging.error(f"Error extracting date components: {e}")
         return None
-    
-    print(f"\033[92m✔ BETRIEBSTAGE transformed successfully.\033[0m")
 
-    logging.debug(f"Total partitions: {data.npartitions}")
-    logging.debug(f"Columns: {data.columns}")
-    logging.debug(f"Data types: {data.dtypes}")
-    logging.debug(f"Number of rows: {len(data)}")
-    
     return data
 
 def _save_data(data, output_file_path):
@@ -321,7 +345,8 @@ def _save_data(data, output_file_path):
     """
     try:
         logging.info("Repartitioning data into 20 partitions")
-        data = data.repartition(npartitions=20)
+        data = data.repartition(npartitions=5)
+        gc.collect()
             
         output_file_path = output_file_path.replace('.csv', '.parquet')
         logging.info(f"Output file path changed to {output_file_path}")
