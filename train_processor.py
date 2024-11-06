@@ -266,23 +266,33 @@ class DataProcessor:
         try:
             self.output_file_path = output_file_path
             self.initialize_cluster()
-            
+        
             # Get files
             data_files = [os.path.join(train_folder, f) 
                          for f in os.listdir(train_folder) 
                          if f.endswith('.csv')]
-            
+        
             if not data_files:
                 raise Exception("No CSV files found")
-            
+        
             # Calculate processing parameters
             total_size = sum(os.path.getsize(f) for f in data_files) / (1024**3)
             chunk_size = CONFIG['chunk_size']
-            
+        
             print(f"\n=== Dataset Information ===")
             print(f"Files found: {len(data_files)}")
             print(f"Total size: {total_size:.2f} GB")
-            
+        
+            # First, read all columns from the first file to get complete column list
+            print("\nReading column names from first file...")
+            with open(data_files[0], 'r', encoding='utf-8') as f:
+                all_columns = f.readline().strip().split(delimiter)
+            print(f"Available columns: {', '.join(all_columns)}")
+        
+            # Start with all columns except those explicitly excluded
+            needed_columns = [col for col in all_columns if col not in exclude_columns]
+            print(f"\nColumns to be processed: {', '.join(needed_columns)}")
+        
             # Load and process data
             print("\n=== Loading Data ===")
             ddf = dd.read_csv(
@@ -290,85 +300,105 @@ class DataProcessor:
                 delimiter=delimiter,
                 dtype=self.dtype_definitions,
                 blocksize=f"{chunk_size}MB",
-                assume_missing=True
+                assume_missing=True,
+                usecols=needed_columns
             )
-            
-            if exclude_columns:
-                ddf = ddf.drop(columns=exclude_columns, errors='ignore')
-            
-            # Apply filters
+        
+            # Apply filters early
             print("\n=== Applying Filters ===")
             if train_filters:
                 for column, values in train_filters.items():
                     if column in ddf.columns:
                         values = [values] if not isinstance(values, list) else values
+                        print(f"Filtering {column} for values: {values}")
                         ddf = ddf[ddf[column].isin(values)]
-            
+                        ddf = ddf.persist()
+        
+            print("\nFiltering for REAL status...")
             if "AN_PROGNOSE_STATUS" in ddf.columns and "AB_PROGNOSE_STATUS" in ddf.columns:
                 ddf = ddf[
                     (ddf["AN_PROGNOSE_STATUS"] == "REAL") & 
                     (ddf["AB_PROGNOSE_STATUS"] == "REAL")
                 ]
                 ddf = ddf.drop(columns=["AN_PROGNOSE_STATUS", "AB_PROGNOSE_STATUS"])
-            
-            # Encode columns
-            print("\nEncoding categorical and boolean columns...")
+                ddf = ddf.persist()
+        
+            # Process timestamps and calculate differences in batches
+            print("\n=== Processing Timestamps ===")
+            timestamp_pairs = [
+                ('ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS'),
+                ('ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
+            ]
+        
+            for actual_col, pred_col, diff_col in timestamp_pairs:
+                if actual_col in ddf.columns and pred_col in ddf.columns:
+                    print(f"\nProcessing {actual_col} and {pred_col}...")
+                
+                    # Convert to datetime
+                    print(f"Converting {actual_col} to datetime...")
+                    ddf[actual_col] = dd.to_datetime(ddf[actual_col], format='mixed', dayfirst=True)
+                    print(f"Converting {pred_col} to datetime...")
+                    ddf[pred_col] = dd.to_datetime(ddf[pred_col], format='mixed', dayfirst=True)
+                
+                    # Calculate time difference
+                    print(f"Calculating {diff_col}...")
+                    ddf[diff_col] = (ddf[actual_col] - ddf[pred_col]).dt.total_seconds()
+                
+                    # Extract time components
+                    for col in [actual_col, pred_col]:
+                        print(f"Extracting components for {col}...")
+                        ddf = ddf.assign(**{
+                            f'{col}_DAY': ddf[col].dt.day,
+                            f'{col}_MONTH': ddf[col].dt.month,
+                            f'{col}_YEAR': ddf[col].dt.year,
+                            f'{col}_DAY_OF_WEEK': ddf[col].dt.dayofweek,
+                            f'{col}_HOUR': ddf[col].dt.hour,
+                            f'{col}_MINUTE': ddf[col].dt.minute
+                        })
+
+                    # Drop original timestamp columns to free memory
+                    ddf = ddf.drop(columns=[actual_col, pred_col])
+                    ddf = ddf.persist()
+                    print(f"Completed processing {diff_col}")
+        
+            # Encode categorical columns
+            print("\n=== Encoding Columns ===")
             ddf = self.encode_categorical_columns(ddf)
-            
-            # Drop original columns after encoding
+        
+            # Drop original categorical columns after encoding
             columns_to_drop = []
             for col in self.bool_columns + self.categorical_columns:
                 if col in ddf.columns:
                     columns_to_drop.append(col)
-            ddf = ddf.drop(columns=columns_to_drop)
-            
-            # Process timestamps
-            print("\n=== Processing Timestamps ===")
-            timestamp_cols = ['ANKUNFTSZEIT', 'AN_PROGNOSE', 'ABFAHRTSZEIT', 'AB_PROGNOSE']
-            
-            for col in timestamp_cols:
-                if col in ddf.columns:
-                    print(f"Processing {col}...")
-                    ddf[col] = dd.to_datetime(ddf[col], format='mixed', dayfirst=True)
-                    
-                    ddf = ddf.assign(**{
-                        f'{col}_DAY': ddf[col].dt.day,
-                        f'{col}_MONTH': ddf[col].dt.month,
-                        f'{col}_YEAR': ddf[col].dt.year,
-                        f'{col}_DAY_OF_WEEK': ddf[col].dt.dayofweek,
-                        f'{col}_HOUR': ddf[col].dt.hour,
-                        f'{col}_MINUTE': ddf[col].dt.minute
-                    })
-            
-            ddf = ddf.drop(columns=timestamp_cols)
-            
-            # Calculate metrics
-            print("\n=== Calculating Metrics ===")
-            if all(col in ddf.columns for col in ['ANKUNFTSZEIT', 'AN_PROGNOSE']):
-                ddf['ARRIVAL_TIME_DIFF_SECONDS'] = (ddf['ANKUNFTSZEIT'] - ddf['AN_PROGNOSE']
-                ).dt.total_seconds()
-            
-            if all(col in ddf.columns for col in ['ABFAHRTSZEIT', 'AB_PROGNOSE']):
-                ddf['DEPARTURE_TIME_DIFF_SECONDS'] = (
-                    ddf['ABFAHRTSZEIT'] - ddf['AB_PROGNOSE']
-                ).dt.total_seconds()
-            
+            if columns_to_drop:
+                print("\nDropping original categorical columns...")
+                ddf = ddf.drop(columns=columns_to_drop)
+                ddf = ddf.persist()
+        
+            # Print final column list
+            final_columns = list(ddf.columns)
+            print("\nFinal columns in dataset:")
+            print(', '.join(final_columns))
+        
             # Save results
             print("\n=== Saving Results ===")
             print("Writing to parquet file...")
-            pbar = ProgressBar()
-            pbar.register()
-            try:
+        
+            # Calculate number of partitions based on data size
+            n_partitions = max(1, int(total_size * 2))  # 2 partitions per GB
+            print(f"Using {n_partitions} partitions for writing")
+        
+            ddf = ddf.repartition(npartitions=n_partitions)
+        
+            with ProgressBar():
                 ddf.to_parquet(
                     output_file_path,
                     engine='pyarrow',
                     compression='snappy',
-                    write_metadata_file=False,
+                    write_metadata_file=True,
                     write_index=False
                 )
-            finally:
-                pbar.unregister()
-            
+        
             # Validate output
             success, stats = DataValidation.validate_parquet(output_file_path)
             if success:
@@ -376,17 +406,17 @@ class DataProcessor:
                 print(f"Total rows: {stats['total_rows']:,}")
                 print(f"File size: {stats['file_size']}")
                 print(f"Memory usage: {stats['memory_usage']}")
-                
+            
                 if 'encoded_columns' in stats:
                     print("\nEncoded Columns Statistics:")
                     for col, col_stats in stats['encoded_columns'].items():
                         print(f"\n{col}:")
                         for stat_name, value in col_stats.items():
                             print(f"  {stat_name}: {value}")
-            
+        
             print(f"\n✔ Processing completed successfully")
             return output_file_path
-            
+        
         except Exception as e:
             logging.error(f"Processing error: {str(e)}")
             return None
