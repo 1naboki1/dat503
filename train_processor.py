@@ -13,6 +13,14 @@ from io import BytesIO
 import concurrent.futures
 import shutil
 import pickle
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+import numpy as np
+import pandas as pd
 
 # Configure logging
 logging.basicConfig(
@@ -131,6 +139,210 @@ class DataValidation:
         except Exception as e:
             logging.error(f"Validation error: {str(e)}")
             return False, {'error': str(e)}
+
+class DelayAnalyzer:
+    """Handles train delay analysis using Rainbow Forest approach with Dask."""
+    
+    def __init__(self, processed_folder: str, n_workers: int = 4, memory_per_worker: int = 8):
+        self.processed_folder = processed_folder
+        self.n_workers = n_workers
+        self.memory_per_worker = memory_per_worker
+        self.cluster = None
+        self.client = None
+    
+    def initialize_cluster(self) -> None:
+        print(f"\n=== Initializing Analysis Environment ===")
+        print(f"Workers: {self.n_workers}")
+        print(f"Memory per worker: {self.memory_per_worker}GB")
+        
+        self.cluster = LocalCluster(
+            n_workers=self.n_workers,
+            threads_per_worker=2,
+            memory_limit=f"{self.memory_per_worker}GB",
+            silence_logs=logging.WARNING
+        )
+        self.client = Client(self.cluster)
+        print(f"Dashboard: {self.client.dashboard_link}")
+
+    def analyze_delays(self, parquet_file: str):
+        """Analyze train delays using a Rainbow Forest approach with Dask."""
+        try:
+            self.initialize_cluster()
+            
+            print("\n=== Starting Delay Analysis ===")
+            print("Loading data...")
+            
+            # Load data using Dask
+            ddf = dd.read_parquet(parquet_file)
+            
+            # Ensure our target columns exist
+            required_cols = ['DEPARTURE_TIME_DIFF_SECONDS', 'ARRIVAL_TIME_DIFF_SECONDS']
+            if not all(col in ddf.columns for col in required_cols):
+                raise ValueError(f"Missing required columns. Available columns: {ddf.columns.tolist()}")
+            
+            # Basic statistics using Dask
+            print("\nCalculating basic delay statistics (in minutes)...")
+            stats = {}
+            for col in required_cols:
+                minutes = ddf[col] / 60
+                stats[col] = {
+                    'mean': minutes.mean().compute(),
+                    'median': minutes.quantile(0.5).compute(),
+                    'std': minutes.std().compute(),
+                    'q90': minutes.quantile(0.9).compute(),
+                    'q95': minutes.quantile(0.95).compute()
+                }
+                
+                print(f"\n{col}:")
+                print(f"Mean delay: {stats[col]['mean']:.2f} minutes")
+                print(f"Median delay: {stats[col]['median']:.2f} minutes")
+                print(f"Std deviation: {stats[col]['std']:.2f} minutes")
+                print(f"90th percentile: {stats[col]['q90']:.2f} minutes")
+                print(f"95th percentile: {stats[col]['q95']:.2f} minutes")
+            
+            # Prepare features using Dask
+            print("\nPreparing features...")
+            feature_cols = [col for col in ddf.columns if 
+                          col.endswith(('_DAY', '_MONTH', '_YEAR', '_DAY_OF_WEEK', '_HOUR', '_MINUTE', '_encoded'))
+                          and col not in required_cols]
+            
+            # Convert to pandas for model training (after filtering)
+            print("\nPreparing training data...")
+            # Use Dask to sample the data if it's too large
+            sample_size = 1000000  # Adjust based on your memory constraints
+            if ddf.shape[0].compute() > sample_size:
+                print(f"Sampling {sample_size} records for model training...")
+                # Calculate sampling fraction
+                total_rows = ddf.shape[0].compute()
+                fraction = sample_size / total_rows
+                ddf = ddf.sample(n=sample_size)
+            
+            # Trigger computation and convert to pandas
+            with ProgressBar():
+                print("Converting to pandas DataFrame...")
+                df = ddf.compute()
+            
+            X = df[feature_cols]
+            y_departure = df['DEPARTURE_TIME_DIFF_SECONDS']
+            y_arrival = df['ARRIVAL_TIME_DIFF_SECONDS']
+            
+            # Split data
+            X_train, X_test, y_train_dep, y_test_dep, y_train_arr, y_test_arr = train_test_split(
+                X, y_departure, y_arrival, test_size=0.2, random_state=42
+            )
+            
+            # Train Rainbow Forest using all cores
+            print("\nTraining Rainbow Forest...")
+            
+            rf_departure = RandomForestRegressor(
+                n_estimators=100, max_depth=15, 
+                min_samples_split=50, n_jobs=-1, random_state=42
+            )
+            
+            rf_arrival = RandomForestRegressor(
+                n_estimators=100, max_depth=15,
+                min_samples_split=50, n_jobs=-1, random_state=42
+            )
+            
+            # Fit models
+            print("Training departure delay model...")
+            rf_departure.fit(X_train, y_train_dep)
+            
+            print("Training arrival delay model...")
+            rf_arrival.fit(X_train, y_train_arr)
+            
+            # Make predictions
+            y_pred_dep = rf_departure.predict(X_test)
+            y_pred_arr = rf_arrival.predict(X_test)
+            
+            # Calculate metrics
+            print("\nModel Performance:")
+            print("\nDeparture Delay Model:")
+            print(f"R² Score: {r2_score(y_test_dep, y_pred_dep):.3f}")
+            print(f"RMSE: {np.sqrt(mean_squared_error(y_test_dep, y_pred_dep))/60:.2f} minutes")
+            
+            print("\nArrival Delay Model:")
+            print(f"R² Score: {r2_score(y_test_arr, y_pred_arr):.3f}")
+            print(f"RMSE: {np.sqrt(mean_squared_error(y_test_arr, y_pred_arr))/60:.2f} minutes")
+            
+            # Feature importance analysis
+            print("\nAnalyzing feature importance...")
+            
+            def print_feature_importance(model, title):
+                importances = pd.DataFrame({
+                    'feature': feature_cols,
+                    'importance': model.feature_importances_
+                }).sort_values('importance', ascending=False)
+                
+                print(f"\n{title}:")
+                print(importances.head(10).to_string(index=False))
+                return importances
+            
+            imp_dep = print_feature_importance(rf_departure, "Departure Delay Prediction")
+            imp_arr = print_feature_importance(rf_arrival, "Arrival Delay Prediction")
+            
+            # Create visualizations
+            print("\nGenerating visualizations...")
+            plt.figure(figsize=(15, 10))
+            
+            # Plot 1: Delay Distribution
+            plt.subplot(2, 2, 1)
+            sns.kdeplot(data=df, x=df['DEPARTURE_TIME_DIFF_SECONDS']/60, label='Departure', alpha=0.5)
+            sns.kdeplot(data=df, x=df['ARRIVAL_TIME_DIFF_SECONDS']/60, label='Arrival', alpha=0.5)
+            plt.xlabel('Delay (minutes)')
+            plt.ylabel('Density')
+            plt.title('Distribution of Delays')
+            plt.legend()
+            
+            # Plot 2: Feature Importance (Departure)
+            plt.subplot(2, 2, 2)
+            sns.barplot(data=imp_dep.head(10), x='importance', y='feature')
+            plt.title('Top Features for Departure Delay')
+            plt.xlabel('Importance Score')
+            
+            # Plot 3: Feature Importance (Arrival)
+            plt.subplot(2, 2, 3)
+            sns.barplot(data=imp_arr.head(10), x='importance', y='feature')
+            plt.title('Top Features for Arrival Delay')
+            plt.xlabel('Importance Score')
+            
+            # Plot 4: Prediction vs Actual
+            plt.subplot(2, 2, 4)
+            plt.scatter(y_test_dep/60, y_pred_dep/60, alpha=0.5, label='Departure')
+            plt.scatter(y_test_arr/60, y_pred_arr/60, alpha=0.5, label='Arrival')
+            plt.plot([-60, 60], [-60, 60], 'r--')  # Perfect prediction line
+            plt.xlabel('Actual Delay (minutes)')
+            plt.ylabel('Predicted Delay (minutes)')
+            plt.title('Predicted vs Actual Delays')
+            plt.legend()
+            
+            plt.tight_layout()
+            
+            # Save visualization
+            viz_path = os.path.join(self.processed_folder, 'delay_analysis.png')
+            plt.savefig(viz_path)
+            plt.close()
+            
+            # Save models
+            model_dep_path = os.path.join(self.processed_folder, 'rf_departure.joblib')
+            model_arr_path = os.path.join(self.processed_folder, 'rf_arrival.joblib')
+            joblib.dump(rf_departure, model_dep_path)
+            joblib.dump(rf_arrival, model_arr_path)
+            
+            print(f"\nAnalysis complete!")
+            print(f"Visualization saved as: {viz_path}")
+            print(f"Models saved as: {model_dep_path} and {model_arr_path}")
+            
+            return rf_departure, rf_arrival
+            
+        except Exception as e:
+            logging.error(f"Analysis error: {str(e)}")
+            return None
+        finally:
+            if self.client:
+                self.client.close()
+            if self.cluster:
+                self.cluster.close()
 
 class DataProcessor:
     """Handles data processing using Dask for distributed computing."""
@@ -443,6 +655,7 @@ class DataManager:
             n_workers=CONFIG['process_workers'],
             memory_per_worker=CONFIG['memory_per_worker']
         )
+        self.analyzer = DelayAnalyzer(self.processed_folder)
     
     def get_months_to_download(self) -> List[str]:
         months = []
@@ -455,7 +668,7 @@ class DataManager:
         
         return months
     
-    def process_all(self, force_download: bool = False) -> Optional[str]:
+    def process_all(self, force_download: bool = False, skip_analysis: bool = False) -> Optional[str]:
         try:
             # Download data if needed
             if force_download or not os.listdir(self.train_folder):
@@ -468,10 +681,10 @@ class DataManager:
                 if not success:
                     raise Exception("Download failed")
             
-            # Process data with static output filename
+            # Process data
             output_file = os.path.join(
                 self.processed_folder,
-                "processed_data.parquet"  # Static filename
+                "processed_data.parquet"
             )
             
             result = self.processor.process_data(
@@ -481,11 +694,9 @@ class DataManager:
                 exclude_columns=CONFIG['exclude_columns']
             )
             
-            if result:
-                # Validate the final output
-                success, stats = DataValidation.validate_parquet(result)
-                if not success:
-                    raise Exception(f"Validation failed: {stats.get('error', 'Unknown error')}")
+            if result and not skip_analysis:
+                print("\nStarting delay analysis...")
+                self.analyzer.analyze_delays(result)
             
             return result
             
@@ -501,6 +712,7 @@ class DataManager:
         except Exception as e:
             logging.warning(f"Cleanup error: {str(e)}")
 
+# Update the main function to include the new analysis option
 def main():
     """Main execution function."""
     parser = argparse.ArgumentParser(description="Train Data Processing System")
@@ -510,33 +722,27 @@ def main():
                       help='Clean up after processing')
     parser.add_argument('--skip-preprocessing', action='store_true',
                       help='Skip preprocessing and use existing parquet file')
+    parser.add_argument('--skip-analysis', action='store_true',
+                      help='Skip delay analysis')
     args = parser.parse_args()
     
     try:
         manager = DataManager()
         
         if args.skip_preprocessing:
-            # Check if processed file exists
             static_output_file = os.path.join(manager.processed_folder, "processed_data.parquet")
             if os.path.exists(static_output_file):
                 print(f"\nUsing existing processed file: {static_output_file}")
-                success, stats = DataValidation.validate_parquet(static_output_file)
-                if success:
-                    print("\n=== Output Statistics ===")
-                    print(f"Total rows: {stats['total_rows']:,}")
-                    print(f"File size: {stats['file_size']}")
-                    print(f"Memory usage: {stats['memory_usage']}")
-                    if 'encoded_columns' in stats:
-                        print("\nEncoded Columns Statistics:")
-                        for col, col_stats in stats['encoded_columns'].items():
-                            print(f"\n{col}:")
-                            for stat_name, value in col_stats.items():
-                                print(f"  {stat_name}: {value}")
+                if not args.skip_analysis:
+                    manager.analyzer.analyze_delays(static_output_file)
                 return
             else:
                 print("No existing processed file found. Proceeding with preprocessing...")
         
-        result = manager.process_all(force_download=args.force_download)
+        result = manager.process_all(
+            force_download=args.force_download,
+            skip_analysis=args.skip_analysis
+        )
         
         if result:
             print(f"\nProcessing completed successfully")
