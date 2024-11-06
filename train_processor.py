@@ -35,7 +35,7 @@ CONFIG = {
     'download_threads': 4,
     'process_workers': 3,
     'memory_per_worker': 8,  # GB
-    'months_history': 3,
+    'months_history': 5,
     'chunk_size': 100000,
     'exclude_columns': ['PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT', 'HALTESTELLEN_NAME', 'BETRIEBSTAG'],
     'filters': {'LINIEN_TEXT': ['IC2', 'IC3', 'IC5', 'IC6', 'IC8', 'IC21']}
@@ -141,7 +141,7 @@ class DataValidation:
             return False, {'error': str(e)}
 
 class DelayAnalyzer:
-    """Handles train delay analysis using Rainbow Forest approach with Dask."""
+    """Advanced train delay analysis using Rainbow Forest approach with Dask."""
     
     def __init__(self, processed_folder: str, n_workers: int = 4, memory_per_worker: int = 8):
         self.processed_folder = processed_folder
@@ -149,8 +149,31 @@ class DelayAnalyzer:
         self.memory_per_worker = memory_per_worker
         self.cluster = None
         self.client = None
+        
+        # Define model parameters
+        self.model_params = {
+            'base': {
+                'n_estimators': 200,
+                'max_depth': None,
+                'min_samples_split': 20,
+                'min_samples_leaf': 10,
+                'max_features': 'sqrt',
+                'n_jobs': -1,
+                'random_state': 42,
+                'warm_start': True
+            },
+            'tuning_grid': {
+                'n_estimators': [100, 200, 300],
+                'max_depth': [10, 20, None],
+                'min_samples_split': [10, 20, 50],
+                'min_samples_leaf': [5, 10, 20]
+            }
+        }
+        
+        self.feature_cols = None
     
     def initialize_cluster(self) -> None:
+        """Initialize Dask cluster for distributed processing."""
         print(f"\n=== Initializing Analysis Environment ===")
         print(f"Workers: {self.n_workers}")
         print(f"Memory per worker: {self.memory_per_worker}GB")
@@ -164,185 +187,276 @@ class DelayAnalyzer:
         self.client = Client(self.cluster)
         print(f"Dashboard: {self.client.dashboard_link}")
 
+    def preprocess_features(self, ddf):
+        """Enhanced feature engineering for delay analysis."""
+        print("\nEngineering additional features...")
+        
+        # Time-based features
+        for col in ['ANKUNFTSZEIT', 'ABFAHRTSZEIT']:
+            if col in ddf.columns:
+                # Is weekend
+                ddf[f'{col}_IS_WEEKEND'] = ddf[f'{col}_DAY_OF_WEEK'].isin([5, 6])
+                
+                # Time of day categories
+                ddf[f'{col}_TIME_CATEGORY'] = ddf[f'{col}_HOUR'].map({
+                    **dict.fromkeys(range(5), 'night'),
+                    **dict.fromkeys(range(5, 10), 'morning_rush'),
+                    **dict.fromkeys(range(10, 16), 'midday'),
+                    **dict.fromkeys(range(16, 20), 'evening_rush'),
+                    **dict.fromkeys(range(20, 24), 'evening')
+                })
+                
+                # Season calculation
+                ddf[f'{col}_SEASON'] = ddf[f'{col}_MONTH'].map({
+                    **dict.fromkeys([12, 1, 2], 'winter'),
+                    **dict.fromkeys([3, 4, 5], 'spring'),
+                    **dict.fromkeys([6, 7, 8], 'summer'),
+                    **dict.fromkeys([9, 10, 11], 'autumn')
+                })
+
+        # Interaction features
+        if 'LINIEN_TEXT_encoded' in ddf.columns:
+            ddf['LINE_HOUR_INTERACTION'] = ddf['LINIEN_TEXT_encoded'] * ddf['ANKUNFTSZEIT_HOUR']
+        
+        return ddf
+
+    def create_delay_categories(self, delay_seconds):
+        """Create meaningful delay categories."""
+        bins = [-np.inf, -300, -60, 60, 300, 600, np.inf]
+        labels = ['very_early', 'early', 'on_time', 'slight_delay', 'moderate_delay', 'severe_delay']
+        return pd.cut(delay_seconds, bins=bins, labels=labels)
+
+    def calculate_advanced_statistics(self, ddf):
+        """Calculate comprehensive delay statistics."""
+        stats = {}
+        
+        # Basic statistics
+        for col in ['ARRIVAL_TIME_DIFF_SECONDS', 'DEPARTURE_TIME_DIFF_SECONDS']:
+            stats[col] = {
+                'mean': ddf[col].mean().compute(),
+                'median': ddf[col].quantile(0.5).compute(),
+                'std': ddf[col].std().compute(),
+                'skew': ddf[col].skew().compute(),
+                'kurtosis': ddf[col].kurtosis().compute(),
+                'q90': ddf[col].quantile(0.9).compute(),
+                'q95': ddf[col].quantile(0.95).compute()
+            }
+        
+        # Time-based patterns
+        for time_unit in ['HOUR', 'DAY_OF_WEEK', 'MONTH']:
+            stats[f'delays_by_{time_unit}'] = ddf.groupby(f'ANKUNFTSZEIT_{time_unit}')[
+                'ARRIVAL_TIME_DIFF_SECONDS'
+            ].mean().compute()
+        
+        return stats
+
+    def print_advanced_statistics(self, stats):
+        """Print comprehensive statistics in a readable format."""
+        print("\n=== Advanced Delay Statistics ===")
+        
+        for col, stat_dict in stats.items():
+            if col.endswith('_DIFF_SECONDS'):
+                print(f"\n{col.replace('_DIFF_SECONDS', '')} Delays:")
+                print(f"Mean delay: {stat_dict['mean']/60:.2f} minutes")
+                print(f"Median delay: {stat_dict['median']/60:.2f} minutes")
+                print(f"Standard deviation: {stat_dict['std']/60:.2f} minutes")
+                print(f"90th percentile: {stat_dict['q90']/60:.2f} minutes")
+                print(f"95th percentile: {stat_dict['q95']/60:.2f} minutes")
+                print(f"Skewness: {stat_dict['skew']:.2f}")
+                print(f"Kurtosis: {stat_dict['kurtosis']:.2f}")
+
+    def plot_delay_distributions(self, df):
+        """Create delay distribution visualizations."""
+        fig = plt.figure(figsize=(15, 10))
+    
+        # Ensure numeric type
+        df['DEPARTURE_TIME_DIFF_SECONDS'] = pd.to_numeric(df['DEPARTURE_TIME_DIFF_SECONDS'], errors='coerce')
+        df['ARRIVAL_TIME_DIFF_SECONDS'] = pd.to_numeric(df['ARRIVAL_TIME_DIFF_SECONDS'], errors='coerce')
+    
+        # Plot 1: Overall distribution
+        plt.subplot(2, 2, 1)
+        sns.kdeplot(data=df, x=df['DEPARTURE_TIME_DIFF_SECONDS'].div(60), label='Departure', alpha=0.5)
+        sns.kdeplot(data=df, x=df['ARRIVAL_TIME_DIFF_SECONDS'].div(60), label='Arrival', alpha=0.5)
+        plt.xlabel('Delay (minutes)')
+        plt.ylabel('Density')
+        plt.title('Distribution of Delays')
+        plt.legend()
+    
+        # Plot 2: Box plots by time category (if time categories exist)
+        if 'ANKUNFTSZEIT_TIME_CATEGORY' in df.columns:
+            plt.subplot(2, 2, 2)
+            sns.boxplot(data=df, x='ANKUNFTSZEIT_TIME_CATEGORY', 
+                       y=df['ARRIVAL_TIME_DIFF_SECONDS'].div(60))
+            plt.xticks(rotation=45)
+            plt.xlabel('Time Category')
+            plt.ylabel('Delay (minutes)')
+            plt.title('Delays by Time of Day')
+    
+        return fig
+
+    def plot_time_patterns(self, stats):
+        """Create time-based pattern visualizations."""
+        fig = plt.figure(figsize=(15, 10))
+        
+        # Plot delays by hour
+        plt.subplot(2, 2, 1)
+        delays_by_hour = stats['delays_by_HOUR']
+        plt.plot(delays_by_hour.index, delays_by_hour.values/60)
+        plt.xlabel('Hour of Day')
+        plt.ylabel('Average Delay (minutes)')
+        plt.title('Average Delays by Hour')
+        
+        # Plot delays by day of week
+        plt.subplot(2, 2, 2)
+        delays_by_dow = stats['delays_by_DAY_OF_WEEK']
+        plt.bar(delays_by_dow.index, delays_by_dow.values/60)
+        plt.xlabel('Day of Week')
+        plt.ylabel('Average Delay (minutes)')
+        plt.title('Average Delays by Day of Week')
+        
+        return fig
+
+    def plot_feature_importance(self, models):
+        """Create feature importance visualizations."""
+        fig = plt.figure(figsize=(15, 10))
+        
+        for i, (name, model) in enumerate(models.items(), 1):
+            plt.subplot(2, 1, i)
+            importances = pd.DataFrame({
+                'feature': self.feature_cols,
+                'importance': model.feature_importances_
+            }).sort_values('importance', ascending=False)
+            
+            sns.barplot(data=importances.head(10), x='importance', y='feature')
+            plt.title(f'Top Features for {name.title()} Delay Prediction')
+            
+        return fig
+
+    def plot_model_performance(self, df, models):
+        """Create model performance visualizations."""
+        fig = plt.figure(figsize=(15, 10))
+        
+        for i, (name, model) in enumerate(models.items(), 1):
+            plt.subplot(1, 2, i)
+            y_true = df[f'{name.upper()}_TIME_DIFF_SECONDS']
+            y_pred = model.predict(df[self.feature_cols])
+            
+            plt.scatter(y_true/60, y_pred/60, alpha=0.5)
+            plt.plot([-60, 60], [-60, 60], 'r--')
+            plt.xlabel('Actual Delay (minutes)')
+            plt.ylabel('Predicted Delay (minutes)')
+            plt.title(f'{name.title()} Delay Predictions')
+            
+        return fig
+
     def analyze_delays(self, parquet_file: str):
-        """Analyze train delays using a Rainbow Forest approach with Dask."""
+        """Main analysis method."""
         try:
             self.initialize_cluster()
-            
-            print("\n=== Starting Delay Analysis ===")
+            print("\n=== Starting Enhanced Delay Analysis ===")
+        
+            # Load data
             print("Loading data...")
-            
-            # Load data using Dask
             ddf = dd.read_parquet(parquet_file)
-            
-            # Ensure our target columns exist
+        
+            # Verify required columns and convert to numeric
             required_cols = ['DEPARTURE_TIME_DIFF_SECONDS', 'ARRIVAL_TIME_DIFF_SECONDS']
             if not all(col in ddf.columns for col in required_cols):
                 raise ValueError(f"Missing required columns. Available columns: {ddf.columns.tolist()}")
-            
-            # Basic statistics using Dask
-            print("\nCalculating basic delay statistics (in minutes)...")
-            stats = {}
+        
+            # Convert delay columns to numeric
+            print("Converting delay columns to numeric...")
             for col in required_cols:
-                minutes = ddf[col] / 60
-                stats[col] = {
-                    'mean': minutes.mean().compute(),
-                    'median': minutes.quantile(0.5).compute(),
-                    'std': minutes.std().compute(),
-                    'q90': minutes.quantile(0.9).compute(),
-                    'q95': minutes.quantile(0.95).compute()
-                }
-                
-                print(f"\n{col}:")
-                print(f"Mean delay: {stats[col]['mean']:.2f} minutes")
-                print(f"Median delay: {stats[col]['median']:.2f} minutes")
-                print(f"Std deviation: {stats[col]['std']:.2f} minutes")
-                print(f"90th percentile: {stats[col]['q90']:.2f} minutes")
-                print(f"95th percentile: {stats[col]['q95']:.2f} minutes")
-            
-            # Prepare features using Dask
-            print("\nPreparing features...")
-            feature_cols = [col for col in ddf.columns if 
-                          col.endswith(('_DAY', '_MONTH', '_YEAR', '_DAY_OF_WEEK', '_HOUR', '_MINUTE', '_encoded'))
-                          and col not in required_cols]
-            
-            # Convert to pandas for model training (after filtering)
-            print("\nPreparing training data...")
-            # Use Dask to sample the data if it's too large
-            sample_size = 1000000  # Adjust based on your memory constraints
-            if ddf.shape[0].compute() > sample_size:
-                print(f"Sampling {sample_size} records for model training...")
-                # Calculate sampling fraction
-                total_rows = ddf.shape[0].compute()
-                fraction = sample_size / total_rows
-                ddf = ddf.sample(n=sample_size)
-            
-            # Trigger computation and convert to pandas
+                ddf[col] = dd.to_numeric(ddf[col], errors='coerce')
+        
+            # Preprocess and engineer features
+            ddf = self.preprocess_features(ddf)
+        
+            # Calculate statistics
+            print("\nCalculating statistics...")
+            stats = self.calculate_advanced_statistics(ddf)
+            self.print_advanced_statistics(stats)
+        
+            # Prepare for modeling
+            print("\nPreparing for modeling...")
+            self.feature_cols = [col for col in ddf.columns if 
+                col.endswith(('_DAY', '_MONTH', '_YEAR', '_DAY_OF_WEEK', '_HOUR', 
+                             '_MINUTE', '_encoded', '_IS_WEEKEND', '_TIME_CATEGORY', '_SEASON'))
+                and col not in required_cols]
+        
+            # Convert to pandas for modeling
+            print("Converting to pandas DataFrame...")
             with ProgressBar():
-                print("Converting to pandas DataFrame...")
                 df = ddf.compute()
-            
-            X = df[feature_cols]
-            y_departure = df['DEPARTURE_TIME_DIFF_SECONDS']
-            y_arrival = df['ARRIVAL_TIME_DIFF_SECONDS']
-            
-            # Split data
-            X_train, X_test, y_train_dep, y_test_dep, y_train_arr, y_test_arr = train_test_split(
-                X, y_departure, y_arrival, test_size=0.2, random_state=42
-            )
-            
-            # Train Rainbow Forest using all cores
-            print("\nTraining Rainbow Forest...")
-            
-            rf_departure = RandomForestRegressor(
-                n_estimators=100, max_depth=15, 
-                min_samples_split=50, n_jobs=-1, random_state=42
-            )
-            
-            rf_arrival = RandomForestRegressor(
-                n_estimators=100, max_depth=15,
-                min_samples_split=50, n_jobs=-1, random_state=42
-            )
-            
-            # Fit models
-            print("Training departure delay model...")
-            rf_departure.fit(X_train, y_train_dep)
-            
-            print("Training arrival delay model...")
-            rf_arrival.fit(X_train, y_train_arr)
-            
-            # Make predictions
-            y_pred_dep = rf_departure.predict(X_test)
-            y_pred_arr = rf_arrival.predict(X_test)
-            
-            # Calculate metrics
-            print("\nModel Performance:")
-            print("\nDeparture Delay Model:")
-            print(f"R² Score: {r2_score(y_test_dep, y_pred_dep):.3f}")
-            print(f"RMSE: {np.sqrt(mean_squared_error(y_test_dep, y_pred_dep))/60:.2f} minutes")
-            
-            print("\nArrival Delay Model:")
-            print(f"R² Score: {r2_score(y_test_arr, y_pred_arr):.3f}")
-            print(f"RMSE: {np.sqrt(mean_squared_error(y_test_arr, y_pred_arr))/60:.2f} minutes")
-            
-            # Feature importance analysis
-            print("\nAnalyzing feature importance...")
-            
-            def print_feature_importance(model, title):
-                importances = pd.DataFrame({
-                    'feature': feature_cols,
-                    'importance': model.feature_importances_
-                }).sort_values('importance', ascending=False)
-                
-                print(f"\n{title}:")
-                print(importances.head(10).to_string(index=False))
-                return importances
-            
-            imp_dep = print_feature_importance(rf_departure, "Departure Delay Prediction")
-            imp_arr = print_feature_importance(rf_arrival, "Arrival Delay Prediction")
-            
-            # Create visualizations
+        
+            # Train models
+            print("\nTraining models...")
+            models = self.train_models(df)
+        
+            # Create and save visualizations
             print("\nGenerating visualizations...")
-            plt.figure(figsize=(15, 10))
-            
-            # Plot 1: Delay Distribution
-            plt.subplot(2, 2, 1)
-            sns.kdeplot(data=df, x=df['DEPARTURE_TIME_DIFF_SECONDS']/60, label='Departure', alpha=0.5)
-            sns.kdeplot(data=df, x=df['ARRIVAL_TIME_DIFF_SECONDS']/60, label='Arrival', alpha=0.5)
-            plt.xlabel('Delay (minutes)')
-            plt.ylabel('Density')
-            plt.title('Distribution of Delays')
-            plt.legend()
-            
-            # Plot 2: Feature Importance (Departure)
-            plt.subplot(2, 2, 2)
-            sns.barplot(data=imp_dep.head(10), x='importance', y='feature')
-            plt.title('Top Features for Departure Delay')
-            plt.xlabel('Importance Score')
-            
-            # Plot 3: Feature Importance (Arrival)
-            plt.subplot(2, 2, 3)
-            sns.barplot(data=imp_arr.head(10), x='importance', y='feature')
-            plt.title('Top Features for Arrival Delay')
-            plt.xlabel('Importance Score')
-            
-            # Plot 4: Prediction vs Actual
-            plt.subplot(2, 2, 4)
-            plt.scatter(y_test_dep/60, y_pred_dep/60, alpha=0.5, label='Departure')
-            plt.scatter(y_test_arr/60, y_pred_arr/60, alpha=0.5, label='Arrival')
-            plt.plot([-60, 60], [-60, 60], 'r--')  # Perfect prediction line
-            plt.xlabel('Actual Delay (minutes)')
-            plt.ylabel('Predicted Delay (minutes)')
-            plt.title('Predicted vs Actual Delays')
-            plt.legend()
-            
-            plt.tight_layout()
-            
-            # Save visualization
-            viz_path = os.path.join(self.processed_folder, 'delay_analysis.png')
-            plt.savefig(viz_path)
-            plt.close()
-            
+            figures = {
+                'delay_distribution': self.plot_delay_distributions(df),
+                'time_patterns': self.plot_time_patterns(stats),
+                'feature_importance': self.plot_feature_importance(models),
+                'model_performance': self.plot_model_performance(df, models)
+            }
+        
+            # Save figures
+            print("\nSaving visualizations...")
+            for name, fig in figures.items():
+                fig_path = os.path.join(self.processed_folder, f'{name}.png')
+                fig.savefig(fig_path, bbox_inches='tight', dpi=300)
+                plt.close(fig)
+                print(f"Saved {name} plot to: {fig_path}")
+        
             # Save models
-            model_dep_path = os.path.join(self.processed_folder, 'rf_departure.joblib')
-            model_arr_path = os.path.join(self.processed_folder, 'rf_arrival.joblib')
-            joblib.dump(rf_departure, model_dep_path)
-            joblib.dump(rf_arrival, model_arr_path)
-            
-            print(f"\nAnalysis complete!")
-            print(f"Visualization saved as: {viz_path}")
-            print(f"Models saved as: {model_dep_path} and {model_arr_path}")
-            
-            return rf_departure, rf_arrival
-            
+            print("\nSaving models...")
+            for name, model in models.items():
+                model_path = os.path.join(self.processed_folder, f'rf_{name}.joblib')
+                joblib.dump(model, model_path)
+                print(f"Saved {name} model to: {model_path}")
+        
+            print("\nAnalysis complete!")
+            return models, figures
+        
         except Exception as e:
             logging.error(f"Analysis error: {str(e)}")
-            return None
+            raise
         finally:
             if self.client:
                 self.client.close()
             if self.cluster:
                 self.cluster.close()
+
+    def train_models(self, df):
+        """Train delay prediction models."""
+        X = df[self.feature_cols]
+        y_dep = df['DEPARTURE_TIME_DIFF_SECONDS']
+        y_arr = df['ARRIVAL_TIME_DIFF_SECONDS']
+    
+        # Split data
+        X_train, X_test, y_train_dep, y_test_dep, y_train_arr, y_test_arr = train_test_split(
+        X, y_dep, y_arr, test_size=0.2, random_state=42
+        )
+    
+        # Train models
+        models = {}
+        for name, (y_train, y_test) in [('departure', (y_train_dep, y_test_dep)), 
+                                   ('arrival', (y_train_arr, y_test_arr))]:
+            print(f"\nTraining {name} model...")
+            model = RandomForestRegressor(**self.model_params['base'])
+            model.fit(X_train, y_train)
+        
+            # Evaluate
+            y_pred = model.predict(X_test)
+            print(f"{name.title()} Model Performance:")
+            print(f"R² Score: {r2_score(y_test, y_pred):.3f}")
+            print(f"RMSE: {np.sqrt(mean_squared_error(y_test, y_pred))/60:.2f} minutes")
+        
+            models[name] = model
+    
+        return models
 
 class DataProcessor:
     """Handles data processing using Dask for distributed computing."""
@@ -541,20 +655,20 @@ class DataProcessor:
                 ('ANKUNFTSZEIT', 'AN_PROGNOSE', 'ARRIVAL_TIME_DIFF_SECONDS'),
                 ('ABFAHRTSZEIT', 'AB_PROGNOSE', 'DEPARTURE_TIME_DIFF_SECONDS')
             ]
-        
+
             for actual_col, pred_col, diff_col in timestamp_pairs:
                 if actual_col in ddf.columns and pred_col in ddf.columns:
                     print(f"\nProcessing {actual_col} and {pred_col}...")
-                
+        
                     # Convert to datetime
                     print(f"Converting {actual_col} to datetime...")
                     ddf[actual_col] = dd.to_datetime(ddf[actual_col], format='mixed', dayfirst=True)
                     print(f"Converting {pred_col} to datetime...")
                     ddf[pred_col] = dd.to_datetime(ddf[pred_col], format='mixed', dayfirst=True)
-                
-                    # Calculate time difference
+        
+                    # Calculate time difference (predicted - actual)
                     print(f"Calculating {diff_col}...")
-                    ddf[diff_col] = (ddf[actual_col] - ddf[pred_col]).dt.total_seconds()
+                    ddf[diff_col] = (ddf[pred_col] - ddf[actual_col]).dt.total_seconds()   
                 
                     # Extract time components
                     for col in [actual_col, pred_col]:
