@@ -9,7 +9,6 @@ from typing import List, Dict, Optional, Tuple
 import argparse
 import requests
 from zipfile import ZipFile
-from io import BytesIO
 import concurrent.futures
 import shutil
 import pickle
@@ -21,6 +20,8 @@ import seaborn as sns
 import joblib
 import numpy as np
 import pandas as pd
+import time
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -33,72 +34,179 @@ CONFIG = {
     'base_url': 'https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive',
     'data_path': 'data',
     'download_threads': 4,
-    'process_workers': 3,
-    'memory_per_worker': 8,  # GB
+    'process_workers': 6,
+    'memory_per_worker': 5,  # GB
     'months_history': 6,
     'chunk_size': 100000,
     'exclude_columns': ['BETREIBER_ABK','FAHRT_BEZEICHNER','PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT', 'BPUIC', 'BETRIEBSTAG'],
-    'filters': {'LINIEN_TEXT': ['IC2', 'IC3', 'IC5', 'IC6', 'IC8', 'IC21']}
+    'filters': {'LINIEN_TEXT': ['IC2', 'IC3', 'IC5', 'IC6', 'IC8', 'IC21', 'IC51', 'IC61', 'IC81']}
 }
 
 class DataDownloader:
-    """Handles downloading and extracting of train data files."""
+    """Handles downloading and extracting of train data files with robust error handling."""
     
-    def __init__(self, base_url: str, target_folder: str):
+    def __init__(self, base_url: str, target_folder: str, max_retries: int = 3, chunk_size: int = 8192):
         self.base_url = base_url
         self.target_folder = target_folder
-    
-    def download_extract(self, month: str) -> bool:
+        self.max_retries = max_retries
+        self.chunk_size = chunk_size
+        self.session = requests.Session()
+        # Configure longer timeouts
+        self.session.timeout = (30, 300)  # (connect timeout, read timeout)
+        
+    def _download_with_resume(self, url: str, temp_file: str) -> bool:
+        """Download file with resume capability."""
+        headers = {}
+        temp_file_path = f"{temp_file}.partial"
+        mode = 'ab'
+        
+        # Check if partial download exists
+        if os.path.exists(temp_file_path):
+            temp_size = os.path.getsize(temp_file_path)
+            headers['Range'] = f'bytes={temp_size}-'
+            print(f"Resuming download from byte {temp_size}")
+        else:
+            temp_size = 0
+            mode = 'wb'
+        
         try:
-            file_url = f"{self.base_url}/ist-daten-{month}.zip"
-            print(f"Attempting to download: {file_url}")
+            # Get file size
+            response = self.session.head(url, timeout=30)
+            total_size = int(response.headers.get('content-length', 0))
             
-            response = requests.get(file_url, stream=True)
+            # Start download
+            response = self.session.get(url, headers=headers, stream=True, timeout=300)
             
-            if response.status_code == 200:
-                total_size = int(response.headers.get('content-length', 0))
-                block_size = 1024
-                
-                t = tqdm(total=total_size, unit='iB', unit_scale=True, 
-                        desc=f"Downloading {month}")
-                file_content = BytesIO()
-                
-                for data in response.iter_content(block_size):
-                    t.update(len(data))
-                    file_content.write(data)
-                t.close()
-                
-                if total_size != 0 and t.n != total_size:
-                    logging.error(f"Download incomplete for {month}")
-                    return False
-                
-                with ZipFile(file_content) as zip_file:
-                    file_list = zip_file.namelist()
-                    with tqdm(total=len(file_list), 
-                            desc=f"Extracting {month}") as pbar:
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            futures = [
-                                executor.submit(zip_file.extract, file, self.target_folder)
-                                for file in file_list
-                            ]
-                            for future in concurrent.futures.as_completed(futures):
-                                pbar.update(1)
-                
-                logging.info(f"Successfully processed: {file_url}")
+            if response.status_code == 416:  # Range not satisfiable
+                print("Invalid range request, starting fresh download")
+                temp_size = 0
+                mode = 'wb'
+                headers = {}
+                response = self.session.get(url, stream=True, timeout=300)
+            
+            response.raise_for_status()
+            
+            # Setup progress bar
+            progress = tqdm(
+                total=total_size,
+                initial=temp_size,
+                unit='iB',
+                unit_scale=True,
+                desc=f"Downloading {os.path.basename(url)}"
+            )
+            
+            with open(temp_file_path, mode) as f:
+                for chunk in response.iter_content(chunk_size=self.chunk_size):
+                    if chunk:
+                        size = f.write(chunk)
+                        progress.update(size)
+            
+            progress.close()
+            
+            # Verify download
+            if os.path.getsize(temp_file_path) >= total_size:
+                os.rename(temp_file_path, temp_file)
                 return True
             else:
-                logging.error(f"Failed to download: {file_url} "
-                            f"(Status: {response.status_code})")
+                print(f"Download incomplete. Expected {total_size} bytes, got {os.path.getsize(temp_file_path)} bytes")
                 return False
                 
         except Exception as e:
-            logging.error(f"Error processing {month}: {str(e)}")
+            print(f"Download error: {str(e)}")
             return False
     
+    def _extract_with_progress(self, zip_path: str) -> bool:
+        """Extract ZIP file with progress tracking."""
+        try:
+            with ZipFile(zip_path) as zip_file:
+                # Get total size for progress bar
+                total_size = sum(info.file_size for info in zip_file.filelist)
+                extracted_size = 0
+                
+                with tqdm(total=total_size, unit='iB', unit_scale=True, 
+                         desc=f"Extracting {os.path.basename(zip_path)}") as pbar:
+                    for info in zip_file.filelist:
+                        zip_file.extract(info, self.target_folder)
+                        extracted_size += info.file_size
+                        pbar.update(info.file_size)
+                
+                return True
+        except Exception as e:
+            print(f"Extraction error: {str(e)}")
+            return False
+    
+    def download_extract(self, month: str) -> bool:
+        """Download and extract data with retries."""
+        file_url = f"{self.base_url}/ist-daten-{month}.zip"
+        temp_zip = os.path.join(self.target_folder, f"ist-daten-{month}.zip")
+        
+        print(f"\nProcessing {month}...")
+        
+        for attempt in range(self.max_retries):
+            try:
+                if attempt > 0:
+                    print(f"Retry attempt {attempt + 1}/{self.max_retries}")
+                
+                # Download
+                if not self._download_with_resume(file_url, temp_zip):
+                    continue
+                
+                # Extract
+                if not self._extract_with_progress(temp_zip):
+                    continue
+                
+                # Clean up
+                try:
+                    os.remove(temp_zip)
+                except Exception as e:
+                    print(f"Warning: Could not remove temporary file {temp_zip}: {str(e)}")
+                
+                return True
+                
+            except Exception as e:
+                print(f"Error on attempt {attempt + 1}: {str(e)}")
+                if attempt < self.max_retries - 1:
+                    sleep_time = 2 ** attempt  # Exponential backoff
+                    print(f"Waiting {sleep_time} seconds before retry...")
+                    time.sleep(sleep_time)
+        
+        print(f"Failed to process {month} after {self.max_retries} attempts")
+        return False
+    
     def download_months(self, months: List[str], max_workers: int = 4) -> bool:
+        """Download multiple months with proper resource management."""
+        results = []
+        failed_months = []
+        
+        print(f"\n=== Downloading {len(months)} months of data ===")
+        print(f"Workers: {max_workers}")
+        print(f"Max retries per download: {self.max_retries}")
+        
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(self.download_extract, month) for month in months]
-            results = [future.result() for future in concurrent.futures.as_completed(futures)]
+            future_to_month = {
+                executor.submit(self.download_extract, month): month 
+                for month in months
+            }
+            
+            for future in concurrent.futures.as_completed(future_to_month):
+                month = future_to_month[future]
+                try:
+                    success = future.result()
+                    results.append(success)
+                    if not success:
+                        failed_months.append(month)
+                except Exception as e:
+                    print(f"Unexpected error processing {month}: {str(e)}")
+                    results.append(False)
+                    failed_months.append(month)
+        
+        # Summary
+        success_count = sum(results)
+        print(f"\n=== Download Summary ===")
+        print(f"Successfully processed: {success_count}/{len(months)} months")
+        
+        if failed_months:
+            print(f"Failed months: {', '.join(failed_months)}")
         
         return all(results)
 
@@ -171,7 +279,9 @@ class DelayAnalyzer:
             }
         }
         
+        # Update feature columns to include geospatial data
         self.feature_cols = None
+        self.geo_cols = ['STATION_LAT', 'STATION_LON']
 
     def analyze_station_delays(self, df):
         """Analyze delays by station."""
@@ -333,51 +443,144 @@ class DelayAnalyzer:
         return fig
 
     def plot_time_patterns(self, stats):
-        """Create time-based pattern visualizations with proper legend handling."""
-        fig = plt.figure(figsize=(15, 10))
-    
-        # Ensure we have valid data to plot
-        time_patterns = []
-        labels = []
-    
-        # Time patterns based on minutes since midnight
-        for time_col in ['ANKUNFTSZEIT_MINUTES', 'ABFAHRTSZEIT_MINUTES']:
-            if time_col in stats and not stats[time_col].empty:
-                time_patterns.append(stats[time_col])
-                labels.append('Arrival' if 'ANKUNFT' in time_col else 'Departure')
-    
-        if time_patterns:
-            for pattern, label in zip(time_patterns, labels):
-                # Convert minutes to hours for x-axis
-                hours = pattern.index / 60
-                # Convert delay to minutes for y-axis
-                delays = pattern.values / 60
-                plt.plot(hours, delays, label=label)
-            
-            plt.xlabel('Hour of Day')
-            plt.ylabel('Average Delay (minutes)')
-            plt.title('Average Delays by Time of Day')
-            plt.legend()
-        else:
-            plt.text(0.5, 0.5, 'No time pattern data available', 
-                    ha='center', va='center')
-    
-        return fig
-
-    def plot_feature_importance(self, models):
-        """Create feature importance visualizations."""
+        """Create enhanced time-based pattern visualizations."""
         fig = plt.figure(figsize=(15, 10))
         
-        for i, (name, model) in enumerate(models.items(), 1):
-            plt.subplot(2, 1, i)
-            importances = pd.DataFrame({
-                'feature': self.feature_cols,
-                'importance': model.feature_importances_
-            }).sort_values('importance', ascending=False)
+        # Setup subplots
+        gs = plt.GridSpec(2, 1, height_ratios=[2, 1], hspace=0.3)
+        
+        # Plot 1: Delays by hour
+        ax1 = fig.add_subplot(gs[0])
+        
+        time_patterns = []
+        labels = []
+        colors = ['#1f77b4', '#ff7f0e']  # Blue for arrival, Orange for departure
+        
+        for time_col in ['ANKUNFTSZEIT_MINUTES', 'ABFAHRTSZEIT_MINUTES']:
+            if time_col in stats and not stats[time_col].empty:
+                # Group by hour instead of minutes for smoother visualization
+                hours = stats[time_col].index / 60
+                delays = stats[time_col].values / 60  # Convert to minutes
+                
+                # Create hourly averages
+                df_hourly = pd.DataFrame({
+                    'hour': hours,
+                    'delay': delays
+                })
+                df_hourly = df_hourly.groupby(df_hourly['hour'].astype(int)).mean()
+                
+                time_patterns.append(df_hourly)
+                labels.append('Arrival' if 'ANKUNFT' in time_col else 'Departure')
+        
+        if time_patterns:
+            for pattern, label, color in zip(time_patterns, labels, colors):
+                # Plot with error bands
+                ax1.plot(pattern.index, pattern['delay'],
+                        label=label, color=color, linewidth=2)
+                
+                # Add rolling mean for trend
+                rolling_mean = pattern['delay'].rolling(window=3, center=True).mean()
+                ax1.plot(pattern.index, rolling_mean, 
+                        '--', color=color, alpha=0.5, 
+                        label=f'{label} Trend')
+        
+        ax1.set_xlabel('Hour of Day')
+        ax1.set_ylabel('Average Delay (minutes)')
+        ax1.set_title('Average Delays Throughout the Day')
+        ax1.grid(True, alpha=0.3)
+        ax1.legend()
+        
+        # Customize x-axis
+        ax1.set_xticks(range(0, 25, 2))
+        ax1.set_xlim(0, 23)
+        
+        # Add horizontal line at y=0
+        ax1.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+        
+        # Add annotations for key times
+        peak_times = {
+            'Morning Rush': 8,
+            'Lunch Time': 12,
+            'Evening Rush': 17
+        }
+        
+        for label, hour in peak_times.items():
+            ax1.axvline(x=hour, color='gray', linestyle=':', alpha=0.3)
+            ax1.text(hour, ax1.get_ylim()[1], label,
+                    rotation=90, ha='right', va='top')
+        
+        # Plot 2: Delay Distribution by Time Period
+        ax2 = fig.add_subplot(gs[1])
+        
+        # Define time periods
+        time_periods = {
+            'Early Morning (4-7)': (4, 7),
+            'Morning Rush (7-10)': (7, 10),
+            'Midday (10-16)': (10, 16),
+            'Evening Rush (16-19)': (16, 19),
+            'Evening (19-23)': (19, 23),
+            'Night (23-4)': (23, 4)
+        }
+        
+        period_stats = []
+        
+        for pattern, label in zip(time_patterns, labels):
+            period_means = []
+            period_labels = []
             
-            sns.barplot(data=importances.head(10), x='importance', y='feature')
-            plt.title(f'Top Features for {name.title()} Delay Prediction')
+            for period_name, (start, end) in time_periods.items():
+                if start < end:
+                    mask = (pattern.index >= start) & (pattern.index < end)
+                else:  # Handle overnight period
+                    mask = (pattern.index >= start) | (pattern.index < end)
+                
+                mean_delay = pattern.loc[mask, 'delay'].mean()
+                period_means.append(mean_delay)
+                period_labels.append(period_name)
             
+            df_periods = pd.DataFrame({
+                'Period': period_labels,
+                'Delay': period_means,
+                'Type': label
+            })
+            period_stats.append(df_periods)
+        
+        # Combine stats and plot
+        all_periods = pd.concat(period_stats)
+        sns.barplot(data=all_periods, x='Period', y='Delay', hue='Type', ax=ax2)
+        
+        ax2.set_xlabel('Time Period')
+        ax2.set_ylabel('Average Delay (minutes)')
+        ax2.set_title('Average Delays by Time Period')
+        ax2.tick_params(axis='x', rotation=45)
+        
+        # Add value labels on bars
+        for container in ax2.containers:
+            ax2.bar_label(container, fmt='%.1f', padding=3)
+        
+        # Find max and min delays properly
+        max_idx = all_periods['Delay'].idxmax()
+        min_idx = all_periods['Delay'].idxmin()
+        
+        highest_delay = all_periods.iloc[max_idx]
+        lowest_delay = all_periods.iloc[min_idx]
+        
+        # Format the delay patterns text
+        delay_patterns = (
+            f"Highest delays: {highest_delay['Period']} "
+            f"({highest_delay['Type']}: {highest_delay['Delay']:.1f} min)\n"
+            f"Lowest delays: {lowest_delay['Period']} "
+            f"({lowest_delay['Type']}: {lowest_delay['Delay']:.1f} min)"
+        )
+        
+        # Add text box with properly formatted values
+        plt.figtext(0.02, 0.02, delay_patterns,
+                    bbox=dict(facecolor='white', alpha=0.8),
+                    fontsize=8, family='monospace')
+        
+        # Adjust layout with specified padding
+        plt.tight_layout(rect=[0, 0.05, 1, 1])  # Make room for the text box
+        
         return fig
 
     def plot_model_performance(self, df, models):
@@ -400,8 +603,15 @@ class DelayAnalyzer:
     def train_models(self, df):
         """Train delay prediction models with proper error handling."""
         try:
+            # Update feature columns to include geospatial features
             if not self.feature_cols:
-                raise ValueError("Feature columns not initialized")
+                self.feature_cols = [col for col in df.columns if 
+                    col.endswith(('_MINUTES', '_DAY_OF_WEEK', '_MONTH', '_IS_WEEKEND', '_encoded'))
+                    or col in self.geo_cols]
+            
+            print("\nFeatures used in model:")
+            for col in sorted(self.feature_cols):
+                print(f"- {col}")
             
             X = df[self.feature_cols]
             y_dep = df['DEPARTURE_TIME_DIFF_SECONDS']
@@ -409,8 +619,15 @@ class DelayAnalyzer:
         
             # Verify data
             if X.isna().any().any():
-                logging.warning("NaN values found in features. Filling with 0...")
-                X = X.fillna(0)
+                logging.warning("NaN values found in features. Filling with appropriate values...")
+                # Fill NaN values appropriately for each column type
+                for col in X.columns:
+                    if col in self.geo_cols:
+                        # For geospatial columns, use median values
+                        X[col] = X[col].fillna(X[col].median())
+                    else:
+                        # For other columns, use 0
+                        X[col] = X[col].fillna(0)
         
             # Split data
             X_train, X_test, y_train_dep, y_test_dep, y_train_arr, y_test_arr = train_test_split(
@@ -418,6 +635,8 @@ class DelayAnalyzer:
             )
         
             models = {}
+            feature_importance_data = {}
+            
             for name, (y_train, y_test) in [('departure', (y_train_dep, y_test_dep)), 
                                            ('arrival', (y_train_arr, y_test_arr))]:
                 print(f"\nTraining {name} model...")
@@ -439,57 +658,265 @@ class DelayAnalyzer:
                 print(f"{name.title()} Model Performance:")
                 print(f"R² Score: {r2_score(y_test, y_pred):.3f}")
                 print(f"RMSE: {np.sqrt(mean_squared_error(y_test, y_pred))/60:.2f} minutes")
-            
+                
+                # Calculate and store feature importances
+                importances = pd.DataFrame({
+                    'feature': self.feature_cols,
+                    'importance': model.feature_importances_
+                }).sort_values('importance', ascending=False)
+                
+                print(f"\nTop 10 most important features for {name} delays:")
+                for _, row in importances.head(10).iterrows():
+                    print(f"- {row['feature']}: {row['importance']:.4f}")
+                
                 models[name] = model
-        
+                feature_importance_data[name] = importances
+            
+            # Save feature importance plots
+            self._save_feature_importance_plots(feature_importance_data)
+            
             return models
         
         except Exception as e:
             logging.error(f"Error in model training: {str(e)}")
             raise
 
+    def _save_feature_importance_plots(self, feature_importance_data):
+        """Save detailed feature importance visualizations."""
+        try:
+            # Create plots directory
+            plots_dir = os.path.join(self.processed_folder, 'plots')
+            os.makedirs(plots_dir, exist_ok=True)
+            
+            for model_name, importances in feature_importance_data.items():
+                plt.figure(figsize=(12, 8))
+                
+                # Plot feature importances
+                sns.barplot(data=importances.head(15), x='importance', y='feature')
+                plt.title(f'Top 15 Features for {model_name.title()} Delay Prediction')
+                plt.xlabel('Feature Importance')
+                plt.ylabel('Feature')
+                
+                # Add value labels
+                for i, v in enumerate(importances.head(15)['importance']):
+                    plt.text(v, i, f'{v:.4f}', va='center')
+                
+                # Save plot
+                plt.tight_layout()
+                plt.savefig(os.path.join(plots_dir, f'feature_importance_{model_name}.png'))
+                plt.close()
+                
+                # Save detailed feature importance data
+                importances.to_csv(os.path.join(plots_dir, f'feature_importance_{model_name}.csv'))
+                
+        except Exception as e:
+            logging.error(f"Error saving feature importance plots: {str(e)}")
+
+    def analyze_geo_importance(self, df, models):
+        """Analyze the importance of geographical features."""
+        print("\n=== Geographical Feature Analysis ===")
+        
+        try:
+            for name, model in models.items():
+                print(f"\n{name.title()} Model Geographical Analysis:")
+                
+                # Get feature importances
+                importances = pd.DataFrame({
+                    'feature': self.feature_cols,
+                    'importance': model.feature_importances_
+                })
+                
+                # Filter for geographical features
+                geo_importances = importances[importances['feature'].isin(self.geo_cols)]
+                
+                if not geo_importances.empty:
+                    print("\nGeographical Feature Importances:")
+                    for _, row in geo_importances.iterrows():
+                        print(f"- {row['feature']}: {row['importance']:.4f}")
+                    
+                    # Calculate total geographical impact
+                    total_geo_importance = geo_importances['importance'].sum()
+                    print(f"\nTotal geographical feature importance: {total_geo_importance:.4f}")
+                    print(f"Percentage of model decisions: {total_geo_importance * 100:.2f}%")
+                    
+                    # Create geographical importance visualization
+                    plt.figure(figsize=(10, 6))
+                    sns.barplot(data=geo_importances, x='feature', y='importance')
+                    plt.title(f'Geographical Feature Importance - {name.title()} Model')
+                    plt.xticks(rotation=45)
+                    plt.tight_layout()
+                    
+                    # Save plot
+                    plots_dir = os.path.join(self.processed_folder, 'plots')
+                    plt.savefig(os.path.join(plots_dir, f'geo_importance_{name}.png'))
+                    plt.close()
+                
+        except Exception as e:
+            logging.error(f"Error in geographical analysis: {str(e)}")
+
+    def plot_feature_importance(self, models):
+        """Create feature importance visualizations."""
+        fig = plt.figure(figsize=(15, 10))
+        
+        # Calculate average feature importance across models
+        all_importances = []
+        for name, model in models.items():
+            importances = pd.DataFrame({
+                'feature': self.feature_cols,
+                'importance': model.feature_importances_,
+                'model': name
+            })
+            all_importances.append(importances)
+        
+        combined_importances = pd.concat(all_importances)
+        
+        # Calculate average importance
+        avg_importances = combined_importances.groupby('feature')['importance'].mean().sort_values(ascending=True)
+        
+        # Get top 15 features
+        top_features = avg_importances.tail(15)
+        
+        # Create main importance plot
+        ax1 = plt.subplot(2, 1, 1)
+        bars = ax1.barh(range(len(top_features)), top_features.values)
+        ax1.set_yticks(range(len(top_features)))
+        ax1.set_yticklabels(top_features.index)
+        ax1.set_title('Top 15 Most Important Features (Average)')
+        ax1.set_xlabel('Feature Importance')
+        
+        # Add value labels
+        for i, bar in enumerate(bars):
+            width = bar.get_width()
+            ax1.text(width, i, f'{width:.4f}', 
+                    va='center', fontsize=8)
+        
+        # Create comparison plot
+        ax2 = plt.subplot(2, 1, 2)
+        
+        # Get top 10 features for comparison
+        top_10_features = avg_importances.tail(10).index
+        comparison_data = combined_importances[
+            combined_importances['feature'].isin(top_10_features)
+        ]
+        
+        # Create grouped bar plot
+        sns.barplot(
+            data=comparison_data,
+            y='feature',
+            x='importance',
+            hue='model',
+            ax=ax2
+        )
+        
+        ax2.set_title('Top 10 Feature Importance by Model')
+        ax2.set_xlabel('Feature Importance')
+        ax2.set_ylabel('Feature')
+        
+        # Add feature categories explanation
+        feature_categories = {
+            '_encoded': 'Categorical features (stations, lines, etc.)',
+            '_MINUTES': 'Time of day (minutes from midnight)',
+            '_DAY_OF_WEEK': 'Day of the week (0=Monday to 6=Sunday)',
+            '_MONTH': 'Month of the year',
+            '_IS_WEEKEND': 'Weekend indicator',
+            'STATION_LAT': 'Station latitude',
+            'STATION_LON': 'Station longitude'
+        }
+        
+        # Create feature category explanation text
+        explanation_text = "Feature Categories:\n\n"
+        for suffix, description in feature_categories.items():
+            matching_features = [f for f in self.feature_cols if suffix in f]
+            if matching_features or suffix in ['STATION_LAT', 'STATION_LON']:
+                explanation_text += f"• {description}\n"
+        
+        # Add text box with feature categories
+        plt.figtext(0.02, 0.02, explanation_text,
+                    bbox=dict(facecolor='white', alpha=0.8),
+                    fontsize=8, family='monospace')
+        
+        plt.tight_layout(rect=[0, 0.08, 1, 0.98])
+        
+        # Add analysis summary
+        summary_text = "Key Findings:\n"
+        for name, model in models.items():
+            # Get top 3 features for this model
+            top_3 = pd.Series(
+                model.feature_importances_,
+                index=self.feature_cols
+            ).nlargest(3)
+            
+            summary_text += f"\n{name.title()} model top features:\n"
+            for feat, imp in top_3.items():
+                summary_text += f"  • {feat}: {imp:.4f}\n"
+        
+        plt.figtext(0.98, 0.02, summary_text,
+                    bbox=dict(facecolor='white', alpha=0.8),
+                    fontsize=8, family='monospace',
+                    ha='right')
+        
+        return fig
+
     def analyze_delays(self, parquet_file: str):
         """Main analysis method with proper resource cleanup."""
-        client = None
-        cluster = None
         try:
             self.initialize_cluster()
             print("\n=== Starting Enhanced Delay Analysis ===")
-        
+    
             # Load data
             print("Loading data...")
             ddf = dd.read_parquet(parquet_file)
-        
-            # Verify required columns and convert to numeric
+    
+            # Verify required columns
             required_cols = ['DEPARTURE_TIME_DIFF_SECONDS', 'ARRIVAL_TIME_DIFF_SECONDS']
+            geo_cols = ['STATION_LAT', 'STATION_LON', 'STATION_GEOID']
+        
             if not all(col in ddf.columns for col in required_cols):
                 raise ValueError(f"Missing required columns. Available columns: {ddf.columns.tolist()}")
         
+            # Check for geospatial columns
+            has_geo = all(col in ddf.columns for col in geo_cols)
+            if has_geo:
+                print("\nGeospatial columns found - including in analysis")
+                self.geo_cols = ['STATION_LAT', 'STATION_LON']  # Not using GEOID in the model
+            else:
+                print("\nWarning: Geospatial columns not found - proceeding without geographical features")
+                self.geo_cols = []
+    
             # Convert delay columns to numeric
-            print("Converting delay columns to numeric...")
+            print("\nConverting delay columns to numeric...")
             for col in required_cols:
                 ddf[col] = dd.to_numeric(ddf[col], errors='coerce')
-        
+    
             # Calculate statistics
             print("\nCalculating statistics...")
             stats = self.calculate_advanced_statistics(ddf)
             self.print_advanced_statistics(stats)
-            
+        
             # Prepare for modeling
             print("\nPreparing for modeling...")
             self.feature_cols = [col for col in ddf.columns if 
                 col.endswith(('_MINUTES', '_DAY_OF_WEEK', '_MONTH', '_IS_WEEKEND', '_encoded'))
-                and col not in required_cols]
-            
+                or col in self.geo_cols]
+        
+            print("\nFeatures to be used:")
+            for col in sorted(self.feature_cols):
+                print(f"- {col}")
+        
             # Convert to pandas for modeling
-            print("Converting to pandas DataFrame...")
+            print("\nConverting to pandas DataFrame...")
             with ProgressBar():
                 df = ddf.compute()
-            
+        
             # Train models
             print("\nTraining models...")
             models = self.train_models(df)
-            
+        
+            # Geographical analysis if available
+            if has_geo:
+                print("\nPerforming geographical analysis...")
+                self.analyze_geo_importance(df, models)
+        
             # Create visualizations
             print("\nGenerating visualizations...")
             figures = {
@@ -500,17 +927,22 @@ class DelayAnalyzer:
             }
 
             # Add station delay analysis
+            print("\nAnalyzing station delays...")
             station_fig = self.plot_station_delays(ddf)
             figures['station_delays'] = station_fig
-            
+        
+            # Create plots directory
+            plots_dir = os.path.join(self.processed_folder, 'plots')
+            os.makedirs(plots_dir, exist_ok=True)
+        
             # Save figures
             print("\nSaving visualizations...")
             for name, fig in figures.items():
-                fig_path = os.path.join(self.processed_folder, f'{name}.png')
+                fig_path = os.path.join(plots_dir, f'{name}.png')
                 fig.savefig(fig_path, bbox_inches='tight', dpi=300)
                 plt.close(fig)
                 print(f"Saved {name} plot to: {fig_path}")
-            
+        
             # Save station statistics
             station_stats = self.analyze_station_delays(ddf)
             stats_path = os.path.join(self.processed_folder, 'station_stats.csv')
@@ -523,24 +955,63 @@ class DelayAnalyzer:
                 model_path = os.path.join(self.processed_folder, f'rf_{name}.joblib')
                 joblib.dump(model, model_path)
                 print(f"Saved {name} model to: {model_path}")
+        
+            # Save feature importance data
+            print("\nSaving feature importance data...")
+            for name, model in models.items():
+                importances = pd.DataFrame({
+                    'feature': self.feature_cols,
+                    'importance': model.feature_importances_
+                }).sort_values('importance', ascending=False)
             
+                importance_path = os.path.join(self.processed_folder, f'feature_importance_{name}.csv')
+                importances.to_csv(importance_path, index=False)
+                print(f"Saved {name} feature importance to: {importance_path}")
+        
+            # Save analysis summary
+            summary = {
+                'analysis_date': datetime.now().isoformat(),
+                'features_used': self.feature_cols,
+                'has_geo_features': has_geo,
+                'model_params': self.model_params['base'],
+                'performance': {}
+            }
+        
+            for name, model in models.items():
+                y_true = df[f'{name.upper()}_TIME_DIFF_SECONDS']
+                y_pred = model.predict(df[self.feature_cols])
+            
+                summary['performance'][name] = {
+                    'r2_score': float(r2_score(y_true, y_pred)),
+                    'rmse_minutes': float(np.sqrt(mean_squared_error(y_true, y_pred))/60),
+                    'feature_importance': {
+                        feat: float(imp) 
+                        for feat, imp in zip(self.feature_cols, model.feature_importances_)
+                    }
+                }
+        
+            summary_path = os.path.join(self.processed_folder, 'analysis_summary.json')
+            with open(summary_path, 'w') as f:
+                json.dump(summary, f, indent=2)
+        
             print("\nAnalysis complete!")
             return models, figures
-            
+        
         except Exception as e:
-            logging.error(f"Analysis error: {str(e)}")
+            logging.error(f"Analysis error: {str(e)}", exc_info=True)
             raise
     
         finally:
             # Ensure proper cleanup
             plt.close('all')  # Close all matplotlib figures
-        
+    
             if self.cluster:
                 try:
                     self.cluster.close()
+                    print("\nClosed Dask cluster")
                 except Exception as e:
                     logging.warning(f"Error closing Dask cluster: {str(e)}")
-                
+            
             # Clear any remaining memory
             import gc
             gc.collect()
@@ -555,6 +1026,7 @@ class DataProcessor:
         self.client = None
         self.encoding_maps = {}
         self.output_file_path = None
+        self.geospatial_data = {}
         
         self.bool_columns = ['ZUSATZFAHRT_TF', 'FAELLT_AUS_TF', 'DURCHFAHRT_TF']
         self.categorical_columns = [
@@ -586,6 +1058,100 @@ class DataProcessor:
             'AB_PROGNOSE_STATUS': 'object',
             'DURCHFAHRT_TF': 'object'
         }
+
+    def load_geospatial_data(self, geospatial_file: str) -> None:
+        """Load geospatial data from the provided file."""
+        try:
+            print("\n=== Loading Geospatial Data ===")
+            with open(geospatial_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    # Parse tab-separated values
+                    parts = line.strip().split('\t')
+                    if len(parts) >= 5:
+                        geonameid, name, ascii_name, alt_names, latitude, longitude = parts[:6]
+                        
+                        # Create set of all possible names (including alternatives)
+                        all_names = set([name, ascii_name] + alt_names.split(','))
+                        
+                        # Store the data with all possible names as keys
+                        for station_name in all_names:
+                            self.geospatial_data[station_name] = {
+                                'latitude': float(latitude),
+                                'longitude': float(longitude),
+                                'geonameid': int(geonameid)
+                            }
+            
+            print(f"Loaded geospatial data for {len(self.geospatial_data)} locations")
+            
+        except Exception as e:
+            logging.error(f"Error loading geospatial data: {str(e)}")
+            raise
+
+    def _add_geospatial_columns(self, ddf):
+        """Add geospatial information to the dataframe."""
+        print("\n=== Adding Geospatial Information ===")
+    
+        if not self.geospatial_data:
+            print("Warning: No geospatial data loaded")
+            return ddf
+    
+        try:
+            # Create mappings for station names to coordinates
+            station_to_lat = {}
+            station_to_lon = {}
+            station_to_geoid = {}
+        
+            # Get unique station names from the data
+            unique_stations = ddf['HALTESTELLEN_NAME'].unique().compute()
+        
+            # Match station names with geospatial data
+            matches = 0
+            for station in unique_stations:
+                if station in self.geospatial_data:
+                    geo_info = self.geospatial_data[station]
+                    station_to_lat[station] = float(geo_info['latitude'])
+                    station_to_lon[station] = float(geo_info['longitude'])
+                    station_to_geoid[station] = int(geo_info['geonameid'])
+                    matches += 1
+        
+            print(f"Matched {matches} stations with geospatial data")
+        
+            # Add new columns using map operation with explicit dtypes and meta
+            print("Adding geospatial columns...")
+            ddf['STATION_LAT'] = ddf['HALTESTELLEN_NAME'].map(
+                station_to_lat,
+                meta=('STATION_LAT', 'float64')
+            ).fillna(-999.0).astype('float64')
+        
+            ddf['STATION_LON'] = ddf['HALTESTELLEN_NAME'].map(
+                station_to_lon,
+                meta=('STATION_LON', 'float64')
+            ).fillna(-999.0).astype('float64')
+        
+            ddf['STATION_GEOID'] = ddf['HALTESTELLEN_NAME'].map(
+                station_to_geoid,
+                meta=('STATION_GEOID', 'int64')
+            ).fillna(-1).astype('int64')
+        
+            # Verify the data types
+            print("\nVerifying geospatial column data types...")
+            for col, dtype in {
+                'STATION_LAT': 'float64',
+                'STATION_LON': 'float64',
+                'STATION_GEOID': 'int64'
+            }.items():
+                actual_dtype = ddf[col].dtype
+                print(f"{col}: {actual_dtype}")
+                if str(actual_dtype) != dtype:
+                    print(f"Warning: {col} has dtype {actual_dtype}, expected {dtype}")
+                    ddf[col] = ddf[col].astype(dtype)
+        
+            print("Geospatial columns added successfully")
+            return ddf
+        
+        except Exception as e:
+            logging.error(f"Error adding geospatial data: {str(e)}", exc_info=True)
+            raise
     
     def initialize_cluster(self) -> None:
         """Initialize the Dask cluster for distributed processing."""
@@ -606,6 +1172,7 @@ class DataProcessor:
         """Encode categorical and boolean columns and process timestamps."""
         print("\n=== Encoding Columns ===")
         
+        # Store columns to drop later
         columns_to_drop = []
         
         # Handle boolean columns
@@ -620,7 +1187,6 @@ class DataProcessor:
                 )
                 self.encoding_maps[col] = bool_mapping
                 columns_to_drop.append(col)
-                print(f"Encoded {col} to 0/1")
         
         # Handle categorical columns
         print("\nEncoding categorical columns...")
@@ -635,8 +1201,9 @@ class DataProcessor:
                     mapping,
                     meta=(f'{col}_encoded', 'int32')
                 )
-                columns_to_drop.append(col)
-                print(f"Created {len(mapping)} unique encodings for {col}")
+                # Don't drop HALTESTELLEN_NAME yet
+                if col != 'HALTESTELLEN_NAME':
+                    columns_to_drop.append(col)
         
         # Process timestamps
         print("\n=== Processing Timestamps ===")
@@ -649,35 +1216,26 @@ class DataProcessor:
             if actual_col in ddf.columns and pred_col in ddf.columns:
                 print(f"\nProcessing {actual_col} and {pred_col}...")
                 
-                # Convert to datetime
                 print(f"Converting timestamps to datetime...")
                 ddf[actual_col] = dd.to_datetime(ddf[actual_col], format='mixed', dayfirst=True)
                 ddf[pred_col] = dd.to_datetime(ddf[pred_col], format='mixed', dayfirst=True)
                 
-                # Calculate time difference
                 print(f"Calculating {diff_col}...")
                 ddf[diff_col] = (ddf[pred_col] - ddf[actual_col]).dt.total_seconds()
                 
-                # Convert time to minutes since midnight
                 print(f"Converting {actual_col} to minutes since midnight...")
                 ddf[f'{actual_col}_MINUTES'] = (ddf[actual_col].dt.hour * 60 + 
                                               ddf[actual_col].dt.minute).astype('int16')
                 
-                # Extract time components
                 ddf[f'{actual_col}_DAY_OF_WEEK'] = ddf[actual_col].dt.dayofweek.astype('int8')
                 ddf[f'{actual_col}_MONTH'] = ddf[actual_col].dt.month.astype('int8')
                 ddf[f'{actual_col}_IS_WEEKEND'] = (ddf[f'{actual_col}_DAY_OF_WEEK'] >= 5).astype('int8')
                 
                 columns_to_drop.extend([actual_col, pred_col])
         
-        # Drop original columns
-        print("\nDropping original columns...")
-        ddf = ddf.drop(columns=columns_to_drop)
-        ddf = ddf.persist()
-        
         self._save_encodings()
         
-        return ddf
+        return ddf, columns_to_drop
     
     def _save_encodings(self):
         """Save encoding mappings to files."""
@@ -723,37 +1281,41 @@ class DataProcessor:
 
     def process_data(self, train_folder: str, train_filters: Dict,
                     output_file_path: str, exclude_columns: List[str],
-                    delimiter: str = ';') -> Optional[str]:
+                    geospatial_file: str = None, delimiter: str = ';') -> Optional[str]:
         """Process the train data files."""
         try:
             self.output_file_path = output_file_path
             self.initialize_cluster()
         
+            # Load geospatial data if provided
+            if geospatial_file and os.path.exists(geospatial_file):
+                self.load_geospatial_data(geospatial_file)
+    
             # Get files
             data_files = [os.path.join(train_folder, f) 
                          for f in os.listdir(train_folder) 
                          if f.endswith('.csv')]
-        
+    
             if not data_files:
                 raise Exception("No CSV files found")
-        
+    
             # Calculate processing parameters
             total_size = sum(os.path.getsize(f) for f in data_files) / (1024**3)
             chunk_size = CONFIG['chunk_size']
-        
+    
             print(f"\n=== Dataset Information ===")
             print(f"Files found: {len(data_files)}")
             print(f"Total size: {total_size:.2f} GB")
-        
+    
             # Read columns
             print("\nReading column names from first file...")
             with open(data_files[0], 'r', encoding='utf-8') as f:
                 all_columns = f.readline().strip().split(delimiter)
             print(f"Available columns: {', '.join(all_columns)}")
-        
+    
             needed_columns = [col for col in all_columns if col not in exclude_columns]
             print(f"\nColumns to be processed: {', '.join(needed_columns)}")
-        
+    
             # Load data
             print("\n=== Loading Data ===")
             ddf = dd.read_csv(
@@ -764,7 +1326,7 @@ class DataProcessor:
                 assume_missing=True,
                 usecols=needed_columns
             )
-        
+    
             # Apply filters
             print("\n=== Applying Filters ===")
             if train_filters:
@@ -774,7 +1336,7 @@ class DataProcessor:
                         print(f"Filtering {column} for values: {values}")
                         ddf = ddf[ddf[column].isin(values)]
                         ddf = ddf.persist()
-        
+    
             # Filter for REAL status
             print("\nFiltering for REAL status...")
             if "AN_PROGNOSE_STATUS" in ddf.columns and "AB_PROGNOSE_STATUS" in ddf.columns:
@@ -784,48 +1346,114 @@ class DataProcessor:
                 ]
                 ddf = ddf.drop(columns=["AN_PROGNOSE_STATUS", "AB_PROGNOSE_STATUS"])
                 ddf = ddf.persist()
+    
+            # Process and encode - now returns columns to drop
+            print("\n=== Encoding categorical columns ===")
+            ddf, columns_to_drop = self.encode_categorical_columns(ddf)
         
-            # Process and encode
-            ddf = self.encode_categorical_columns(ddf)
-        
+            # Add geospatial data before dropping HALTESTELLEN_NAME
+            print("\n=== Adding geospatial information ===")
+            ddf = self._add_geospatial_columns(ddf)
+
+            # Now safe to drop all columns including HALTESTELLEN_NAME
+            print("\nDropping original columns...")
+            if 'HALTESTELLEN_NAME' not in columns_to_drop:
+                columns_to_drop.append('HALTESTELLEN_NAME')
+            ddf = ddf.drop(columns=columns_to_drop)
+    
             # Save results
             print("\n=== Saving Results ===")
             print("Writing to parquet file...")
-        
+    
             n_partitions = max(1, int(total_size * 2))
             print(f"Using {n_partitions} partitions for writing")
-        
+    
             ddf = ddf.repartition(npartitions=n_partitions)
-        
+    
+            # Prepare metadata as strings
+            meta = {
+                'has_geospatial': str(bool(self.geospatial_data)),
+                'processing_date': datetime.now().isoformat(),
+                'original_files': str(len(data_files)),
+                'filters_applied': str(train_filters)
+            }
+
+            # Convert all metadata values to strings
+            meta = {k: str(v) for k, v in meta.items()}
+
+            # Ensure all columns have correct dtypes before saving
+            dtypes = {
+                'ZUSATZFAHRT_TF_encoded': 'int8',
+                'FAELLT_AUS_TF_encoded': 'int8',
+                'DURCHFAHRT_TF_encoded': 'int8',
+                'LINIEN_ID_encoded': 'int32',
+                'LINIEN_TEXT_encoded': 'int32',
+                'HALTESTELLEN_NAME_encoded': 'int32',
+                'STATION_LAT': 'float64',
+                'STATION_LON': 'float64',
+                'STATION_GEOID': 'int64',
+                'ARRIVAL_TIME_DIFF_SECONDS': 'float64',
+                'DEPARTURE_TIME_DIFF_SECONDS': 'float64',
+                'ANKUNFTSZEIT_MINUTES': 'int16',
+                'ABFAHRTSZEIT_MINUTES': 'int16',
+                'ANKUNFTSZEIT_DAY_OF_WEEK': 'int8',
+                'ANKUNFTSZEIT_MONTH': 'int8',
+                'ANKUNFTSZEIT_IS_WEEKEND': 'int8',
+                'ABFAHRTSZEIT_DAY_OF_WEEK': 'int8',
+                'ABFAHRTSZEIT_MONTH': 'int8',
+                'ABFAHRTSZEIT_IS_WEEKEND': 'int8'
+            }
+
+            print("\nEnsuring correct data types...")
+            for col, dtype in dtypes.items():
+                if col in ddf.columns:
+                    ddf[col] = ddf[col].astype(dtype)
+
+            print("\nSaving to parquet...")
             with ProgressBar():
                 ddf.to_parquet(
-                    output_file_path,
-                    engine='pyarrow',
-                    compression='snappy',
-                    write_metadata_file=True,
-                    write_index=False
-                )
+                output_file_path,
+                engine='pyarrow',
+                compression='snappy',
+                write_metadata_file=True,
+                write_index=False
+            )
+
+            # Save metadata separately
+            metadata = {
+                'has_geospatial': str(bool(self.geospatial_data)),
+                'processing_date': datetime.now().isoformat(),
+                'original_files': str(len(data_files)),
+                'filters_applied': str(train_filters),
+                'columns': ','.join(ddf.columns),
+                'dtypes': str(ddf.dtypes.to_dict())
+            }
+    
+            # Verify the saved file
+            print("\nVerifying saved file...")
+            test_df = dd.read_parquet(output_file_path)
+            print("Columns in saved file:", test_df.columns.tolist())
+            print("Number of partitions:", test_df.npartitions)
         
-            # Validate output
-            success, stats = DataValidation.validate_parquet(output_file_path)
-            if success:
-                print("\n=== Output Statistics ===")
-                print(f"Total rows: {stats['total_rows']:,}")
-                print(f"File size: {stats['file_size']}")
-                print(f"Memory usage: {stats['memory_usage']}")
-            
-                if 'encoded_columns' in stats:
-                    print("\nEncoded Columns Statistics:")
-                    for col, col_stats in stats['encoded_columns'].items():
-                        print(f"\n{col}:")
-                        for stat_name, value in col_stats.items():
-                            print(f"  {stat_name}: {value}")
+            # Print geospatial column stats
+            geo_cols = ['STATION_LAT', 'STATION_LON', 'STATION_GEOID']
+            if all(col in test_df.columns for col in geo_cols):
+                print("\nGeospatial column statistics:")
+                for col in geo_cols:
+                    stats = test_df[col].describe().compute()
+                    print(f"\n{col}:")
+                    print(f"  Count: {stats['count']:,}")
+                    print(f"  Non-missing: {(stats['count'] - test_df[col].isna().sum().compute()):,}")
+                    print(f"  Mean: {stats['mean']:.6f}")
+                    print(f"  Std: {stats['std']:.6f}")
+                    print(f"  Min: {stats['min']:.6f}")
+                    print(f"  Max: {stats['max']:.6f}")
         
             print(f"\n✔ Processing completed successfully")
             return output_file_path
         
         except Exception as e:
-            logging.error(f"Processing error: {str(e)}")
+            logging.error(f"Processing error: {str(e)}", exc_info=True)
             return None
         finally:
             if self.client:
@@ -840,10 +1468,12 @@ class DataManager:
         self.base_path = base_path
         self.train_folder = os.path.join(base_path, "train")
         self.processed_folder = os.path.join(base_path, "processed")
+        self.geospatial_folder = os.path.join(base_path, "geospatial")
         
-        os.makedirs(self.base_path, exist_ok=True)
-        os.makedirs(self.train_folder, exist_ok=True)
-        os.makedirs(self.processed_folder, exist_ok=True)
+        # Create necessary directories
+        for folder in [self.base_path, self.train_folder, 
+                      self.processed_folder, self.geospatial_folder]:
+            os.makedirs(folder, exist_ok=True)
         
         self.downloader = DataDownloader(CONFIG['base_url'], self.train_folder)
         self.processor = DataProcessor(
@@ -882,11 +1512,15 @@ class DataManager:
                 "processed_data.parquet"
             )
             
+            # Check for geospatial data
+            geospatial_file = os.path.join(self.geospatial_folder, "CH.txt")
+            
             result = self.processor.process_data(
                 train_folder=self.train_folder,
                 train_filters=CONFIG['filters'],
                 output_file_path=output_file,
-                exclude_columns=CONFIG['exclude_columns']
+                exclude_columns=CONFIG['exclude_columns'],
+                geospatial_file=geospatial_file
             )
             
             if result and not skip_analysis:
@@ -944,7 +1578,25 @@ def main():
             static_output_file = os.path.join(manager.processed_folder, "processed_data.parquet")
             if os.path.exists(static_output_file):
                 print(f"\nUsing existing processed file: {static_output_file}")
+                
                 if not args.skip_analysis:
+                    # Load encoding maps
+                    encoding_maps_file = os.path.join(manager.processed_folder, 'category_encodings.pkl')
+                    try:
+                        with open(encoding_maps_file, 'rb') as f:
+                            encoding_maps = pickle.load(f)
+                        print("Successfully loaded encoding maps")
+                    except Exception as e:
+                        print(f"Warning: Could not load encoding maps: {str(e)}")
+                        encoding_maps = {}
+                    
+                    # Initialize analyzer with encoding maps
+                    manager.analyzer = DelayAnalyzer(
+                        manager.processed_folder,
+                        encoding_maps=encoding_maps,
+                        n_workers=CONFIG['process_workers'],
+                        memory_per_worker=CONFIG['memory_per_worker']
+                    )
                     manager.analyzer.analyze_delays(static_output_file)
                 return
             else:
@@ -967,7 +1619,8 @@ def main():
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
     except Exception as e:
-        logging.error(f"Unexpected error: {str(e)}")
+        logging.error(f"Unexpected error: {str(e)}", exc_info=True)
+        raise
 
 if __name__ == "__main__":
     main()
