@@ -300,65 +300,148 @@ class DelayAnalyzer:
         return station_stats
     
     def plot_station_delays(self, df):
-        """Create visualizations for station-based delays."""
+        """Create comprehensive visualizations for station-based delays."""
         print("\nAnalyzing station delays...")
         station_stats = self.analyze_station_delays(df)
         
-        # Sort by average arrival delay
+        # Create figure with better size and spacing
+        fig = plt.figure(figsize=(20, 12))
+        gs = plt.GridSpec(2, 2, height_ratios=[1.2, 1], hspace=0.3, wspace=0.25)
+        
+        # Plot 1: Top 15 stations by average arrival delay (horizontal bars with error bars)
+        ax1 = fig.add_subplot(gs[0, :])
         station_stats_sorted = station_stats.nlargest(15, 'arrival_time_diff_seconds_mean')
         
-        fig = plt.figure(figsize=(15, 10))
-        
-        # Plot 1: Top 15 stations by average arrival delay
-        plt.subplot(2, 1, 1)
-        bars = plt.barh(station_stats_sorted['station_name'],
-                       station_stats_sorted['arrival_time_diff_seconds_mean'] / 60)
-        plt.xlabel('Average Delay (minutes)')
-        plt.ylabel('Station')
-        plt.title('Top 15 Stations by Average Arrival Delay')
+        # Create horizontal bar chart
+        bars = ax1.barh(y=range(len(station_stats_sorted)),
+                    width=station_stats_sorted['arrival_time_diff_seconds_mean'] / 60,
+                    height=0.7,
+                    color='#2196F3',
+                    alpha=0.7)
         
         # Add error bars
-        plt.barh(station_stats_sorted['station_name'],
-                station_stats_sorted['arrival_time_diff_seconds_mean'] / 60,
-                xerr=station_stats_sorted['arrival_time_diff_seconds_std'] / 60,
-                alpha=0.3)
+        ax1.errorbar(station_stats_sorted['arrival_time_diff_seconds_mean'] / 60,
+                    range(len(station_stats_sorted)),
+                    xerr=station_stats_sorted['arrival_time_diff_seconds_std'] / 60,
+                    fmt='none',
+                    color='#1976D2',
+                    alpha=0.5,
+                    capsize=5)
+        
+        # Customize appearance
+        ax1.set_yticks(range(len(station_stats_sorted)))
+        ax1.set_yticklabels(station_stats_sorted['station_name'], fontsize=10)
+        ax1.set_xlabel('Average Delay (minutes)', fontsize=12)
+        ax1.set_title('Top 15 Stations by Average Arrival Delay', fontsize=14, pad=20)
         
         # Add value labels
         for i, bar in enumerate(bars):
             width = bar.get_width()
-            plt.text(width, i, f' {width:.1f}min', 
-                    va='center', fontsize=8)
+            std = station_stats_sorted.iloc[i]['arrival_time_diff_seconds_std'] / 60
+            label = f'{width:.1f}±{std:.1f} min'
+            ax1.text(width, i, f' {label}',
+                    va='center',
+                    fontsize=9,
+                    color='#1565C0')
         
-        # Plot 2: Arrival vs Departure delays
-        plt.subplot(2, 1, 2)
+        # Add grid for better readability
+        ax1.grid(True, axis='x', alpha=0.3)
+        ax1.set_axisbelow(True)
         
-        # Create scatter plot
-        plt.scatter(station_stats['arrival_time_diff_seconds_mean'] / 60,
-                   station_stats['departure_time_diff_seconds_mean'] / 60,
-                   alpha=0.5)
+        # Plot 2: Arrival vs Departure delays scatter plot
+        ax2 = fig.add_subplot(gs[1, 0])
+        
+        # Create scatter plot with transparency and size based on count
+        sizes = station_stats['arrival_time_diff_seconds_count'] / \
+                station_stats['arrival_time_diff_seconds_count'].max() * 300
+        
+        scatter = ax2.scatter(station_stats['arrival_time_diff_seconds_mean'] / 60,
+                            station_stats['departure_time_diff_seconds_mean'] / 60,
+                            alpha=0.6,
+                            s=sizes,
+                            c=station_stats['arrival_time_diff_seconds_std'] / 60,
+                            cmap='YlOrRd')
         
         # Add diagonal line
         max_delay = max(station_stats['arrival_time_diff_seconds_mean'].max(),
-                       station_stats['departure_time_diff_seconds_mean'].max()) / 60
-        plt.plot([0, max_delay], [0, max_delay], 'r--', alpha=0.5)
+                    station_stats['departure_time_diff_seconds_mean'].max()) / 60
+        ax2.plot([0, max_delay], [0, max_delay], 'k--', alpha=0.5, label='Equal Delays')
         
-        plt.xlabel('Average Arrival Delay (minutes)')
-        plt.ylabel('Average Departure Delay (minutes)')
-        plt.title('Station Arrival vs Departure Delays')
+        # Customize appearance
+        ax2.set_xlabel('Average Arrival Delay (minutes)', fontsize=10)
+        ax2.set_ylabel('Average Departure Delay (minutes)', fontsize=10)
+        ax2.set_title('Station Arrival vs Departure Delays', fontsize=12)
+        ax2.grid(True, alpha=0.3)
         
-        # Add annotations for outlier stations
-        for idx, row in station_stats.iterrows():
-            if (abs(row['arrival_time_diff_seconds_mean']) > 
-                station_stats['arrival_time_diff_seconds_mean'].quantile(0.95) or
-                abs(row['departure_time_diff_seconds_mean']) > 
-                station_stats['departure_time_diff_seconds_mean'].quantile(0.95)):
-                plt.annotate(row['station_name'],
-                           (row['arrival_time_diff_seconds_mean'] / 60,
-                            row['departure_time_diff_seconds_mean'] / 60),
-                           xytext=(5, 5), textcoords='offset points',
-                           fontsize=8)
+        # Add colorbar
+        cbar = plt.colorbar(scatter, ax=ax2)
+        cbar.set_label('Delay Standard Deviation (minutes)', fontsize=9)
         
+        # Plot 3: Delay distribution violin plot
+        ax3 = fig.add_subplot(gs[1, 1])
+        
+        # Prepare data for violin plot
+        violin_data = [
+            station_stats['arrival_time_diff_seconds_mean'] / 60,
+            station_stats['departure_time_diff_seconds_mean'] / 60
+        ]
+        
+        # Create violin plot
+        violins = ax3.violinplot(violin_data,
+                                showmeans=True,
+                                showmedians=True)
+        
+        # Customize violin plot colors
+        for i, pc in enumerate(violins['bodies']):
+            pc.set_facecolor(['#2196F3', '#FFA726'][i])
+            pc.set_alpha(0.7)
+        
+        # Customize appearance
+        ax3.set_xticks([1, 2])
+        ax3.set_xticklabels(['Arrival', 'Departure'])
+        ax3.set_ylabel('Average Delay (minutes)', fontsize=10)
+        ax3.set_title('Distribution of Station Delays', fontsize=12)
+        ax3.grid(True, axis='y', alpha=0.3)
+        
+        # Add statistics annotations
+        stats_text = (
+            f"Arrival Delays:\n"
+            f"Mean: {station_stats['arrival_time_diff_seconds_mean'].mean()/60:.1f} min\n"
+            f"Median: {station_stats['arrival_time_diff_seconds_mean'].median()/60:.1f} min\n"
+            f"Std: {station_stats['arrival_time_diff_seconds_mean'].std()/60:.1f} min\n\n"
+            f"Departure Delays:\n"
+            f"Mean: {station_stats['departure_time_diff_seconds_mean'].mean()/60:.1f} min\n"
+            f"Median: {station_stats['departure_time_diff_seconds_mean'].median()/60:.1f} min\n"
+            f"Std: {station_stats['departure_time_diff_seconds_mean'].std()/60:.1f} min"
+        )
+        
+        # Add text box with statistics
+        ax3.text(1.45, ax3.get_ylim()[0], stats_text,
+                bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'),
+                fontsize=9,
+                verticalalignment='bottom')
+        
+        # Add annotations for outlier stations in scatter plot
+        outlier_threshold = station_stats['arrival_time_diff_seconds_mean'].quantile(0.95)
+        outliers = station_stats[
+            (station_stats['arrival_time_diff_seconds_mean'] > outlier_threshold) |
+            (station_stats['departure_time_diff_seconds_mean'] > outlier_threshold)
+        ]
+        
+        for _, row in outliers.iterrows():
+            ax2.annotate(
+                row['station_name'],
+                (row['arrival_time_diff_seconds_mean'] / 60,
+                row['departure_time_diff_seconds_mean'] / 60),
+                xytext=(5, 5),
+                textcoords='offset points',
+                fontsize=8,
+                bbox=dict(facecolor='white', edgecolor='none', alpha=0.7)
+            )
+        
+        # Adjust layout
         plt.tight_layout()
+        
         return fig
     
     def initialize_cluster(self) -> None:
