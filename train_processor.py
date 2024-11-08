@@ -34,9 +34,9 @@ CONFIG = {
     'base_url': 'https://opentransportdata.swiss/wp-content/uploads/ist-daten-archive',
     'data_path': 'data',
     'download_threads': 4,
-    'process_workers': 6,
-    'memory_per_worker': 5,  # GB
-    'months_history': 6,
+    'process_workers': 5,
+    'memory_per_worker': 6,  # GB
+    'months_history': 8,
     'chunk_size': 100000,
     'exclude_columns': ['BETREIBER_ABK','FAHRT_BEZEICHNER','PRODUKT_ID', 'BETREIBER_NAME', 'BETREIBER_ID', 'UMLAUF_ID', 'VERKEHRSMITTEL_TEXT', 'BPUIC', 'BETRIEBSTAG'],
     'filters': {'LINIEN_TEXT': ['IC2', 'IC3', 'IC5', 'IC6', 'IC8', 'IC21', 'IC51', 'IC61', 'IC81']}

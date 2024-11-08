@@ -2,7 +2,6 @@ import dask.dataframe as dd
 import pandas as pd
 import os
 import logging
-import shutil
 from datetime import datetime
 
 logging.basicConfig(
@@ -10,75 +9,105 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def validate_coordinates(updates_df):
-    """Validate the new coordinates before applying updates."""
-    valid_lat = (updates_df['new_latitude'].notna() & 
-                updates_df['new_latitude'].astype(str).str.match(r'-?\d+\.?\d*'))
-    valid_lon = (updates_df['new_longitude'].notna() & 
-                updates_df['new_longitude'].astype(str).str.match(r'-?\d+\.?\d*'))
+def load_or_create_missing_stations_csv(csv_path):
+    """Load existing missing stations CSV or create a new one if it doesn't exist."""
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     
-    updates_df.loc[valid_lat, 'new_latitude'] = pd.to_numeric(
-        updates_df.loc[valid_lat, 'new_latitude'], errors='coerce'
-    )
-    updates_df.loc[valid_lon, 'new_longitude'] = pd.to_numeric(
-        updates_df.loc[valid_lon, 'new_longitude'], errors='coerce'
-    )
-    
-    valid_lat &= (updates_df['new_latitude'] >= 45.8) & (updates_df['new_latitude'] <= 47.9)
-    valid_lon &= (updates_df['new_longitude'] >= 5.9) & (updates_df['new_longitude'] <= 10.5)
-    
-    valid_updates = updates_df[valid_lat & valid_lon].copy()
-    invalid_updates = updates_df[~(valid_lat & valid_lon)].copy()
-    
-    return valid_updates, invalid_updates
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        # Update status to 'updated' for entries with valid coordinates
+        mask = (df['status'] == 'pending') & df['new_latitude'].notna() & df['new_longitude'].notna()
+        df.loc[mask, 'status'] = 'updated'
+        df.to_csv(csv_path, index=False)
+        return df
+    else:
+        df = pd.DataFrame(columns=[
+            'encoded_id', 
+            'new_latitude',
+            'new_longitude',
+            'date_added',
+            'status'
+        ])
+        df.to_csv(csv_path, index=False)
+        return df
 
-def safe_remove_parquet(path):
-    """Safely remove a parquet file/directory."""
+def detect_missing_stations(parquet_file, missing_stations_csv):
+    """Detect stations with missing coordinates (-999)."""
     try:
-        if os.path.isdir(path):
-            shutil.rmtree(path)
-        elif os.path.isfile(path):
-            os.remove(path)
-    except Exception as e:
-        print(f"Warning: Could not remove {path}: {e}")
-
-def update_coordinates(parquet_file, updates_csv, output_file=None, delete_backup=False):
-    """Update station coordinates in the parquet file based on the updates CSV."""
-    backup_file = None
-    try:
-        # Load updates
-        print("\nLoading updates from CSV...")
-        updates_df = pd.read_csv(updates_csv)
+        logging.info("Loading parquet file...")
+        ddf = dd.read_parquet(parquet_file)
         
-        # Validate updates
-        print("\nValidating coordinate updates...")
-        valid_updates, invalid_updates = validate_coordinates(updates_df)
+        logging.info(f"Available columns: {list(ddf.columns)}")
+        
+        missing_coords = ddf[
+            (ddf['STATION_LAT'] == -999.0) | 
+            (ddf['STATION_LON'] == -999.0)
+        ]
+        
+        missing_stations = missing_coords['HALTESTELLEN_NAME_encoded'].drop_duplicates().compute()
+        
+        tracking_df = load_or_create_missing_stations_csv(missing_stations_csv)
+        new_stations_count = 0
+        
+        for encoded_id in missing_stations:
+            if encoded_id not in tracking_df['encoded_id'].values:
+                new_row = {
+                    'encoded_id': encoded_id,
+                    'new_latitude': None,
+                    'new_longitude': None,
+                    'date_added': datetime.now().strftime('%Y-%m-%d'),
+                    'status': 'pending'
+                }
+                tracking_df = pd.concat([tracking_df, pd.DataFrame([new_row])], ignore_index=True)
+                new_stations_count += 1
+                logging.info(f"Added new station to tracking (ID: {encoded_id})")
+        
+        tracking_df.to_csv(missing_stations_csv, index=False)
+        
+        logging.info(f"\nMissing Stations Summary:")
+        logging.info(f"- Total stations in tracking: {len(tracking_df)}")
+        logging.info(f"- New stations found: {new_stations_count}")
+        logging.info(f"- Pending coordinates: {len(tracking_df[tracking_df['status'] == 'pending'])}")
+        logging.info(f"- Updated coordinates: {len(tracking_df[tracking_df['status'] == 'updated'])}")
+        logging.info(f"- Invalid coordinates: {len(tracking_df[tracking_df['status'] == 'invalid'])}")
+        
+        return new_stations_count
+        
+    except Exception as e:
+        logging.error(f"Error detecting missing stations: {str(e)}", exc_info=True)
+        raise
+
+def apply_coordinate_updates(parquet_file, missing_stations_csv, output_file=None):
+    """Apply coordinate updates from CSV to the parquet file."""
+    try:
+        # Load the updates CSV
+        logging.info("Loading coordinate updates...")
+        updates_df = pd.read_csv(missing_stations_csv)
+        
+        # Filter for stations with status 'updated'
+        valid_updates = updates_df[updates_df['status'] == 'updated'].copy()
         
         if len(valid_updates) == 0:
-            raise ValueError("No valid coordinate updates found in CSV")
+            logging.info("No valid updates found in CSV")
+            return False
         
-        print(f"\nFound {len(valid_updates)} valid updates")
-        if len(invalid_updates) > 0:
-            print(f"Warning: {len(invalid_updates)} invalid updates were skipped:")
-            for _, row in invalid_updates.iterrows():
-                print(f"- {row['station_name']} (ID: {row['encoded_id']}): "
-                      f"lat={row['new_latitude']}, lon={row['new_longitude']}")
-        
-        # Create updates dictionary
+        # Create a mapping dictionary for quick lookups
         coord_updates = {}
         for _, row in valid_updates.iterrows():
             coord_updates[row['encoded_id']] = {
-                'lat': float(row['new_latitude']),
-                'lon': float(row['new_longitude'])
+                'lat': row['new_latitude'],
+                'lon': row['new_longitude']
             }
         
+        logging.info(f"Found {len(coord_updates)} stations to update")
+        
         # Load parquet file
-        print("\nLoading parquet file...")
+        logging.info("Loading parquet file...")
         ddf = dd.read_parquet(parquet_file)
         
         # Create backup
         backup_file = f"{parquet_file}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        print(f"\nCreating backup: {backup_file}")
+        logging.info(f"Creating backup: {backup_file}")
         ddf.to_parquet(backup_file, write_index=False)
         
         # Update coordinates using map_partitions
@@ -90,14 +119,14 @@ def update_coordinates(parquet_file, updates_csv, output_file=None, delete_backu
                 df.loc[mask, 'STATION_LON'] = coords['lon']
             return df
         
-        print("\nApplying coordinate updates...")
+        logging.info("Applying coordinate updates...")
         updated_ddf = ddf.map_partitions(update_partition)
         
         # Save updated dataset
         if output_file is None:
             output_file = parquet_file
             
-        print(f"\nSaving updated dataset to: {output_file}")
+        logging.info(f"Saving updated dataset to: {output_file}")
         updated_ddf.to_parquet(
             output_file,
             compression='snappy',
@@ -105,53 +134,34 @@ def update_coordinates(parquet_file, updates_csv, output_file=None, delete_backu
             write_index=False
         )
         
-        # Verify updates
-        print("\nVerifying updates...")
-        verification_ddf = dd.read_parquet(output_file)
-        
-        # Check for remaining -999 values
-        missing_coords = verification_ddf[
-            (verification_ddf['STATION_LAT'] == -999.0) | 
-            (verification_ddf['STATION_LON'] == -999.0)
-        ]
-        
-        remaining_missing = missing_coords['HALTESTELLEN_NAME_encoded'].nunique().compute()
-        
-        print("\nUpdate Summary:")
-        print(f"- Successfully applied {len(valid_updates)} coordinate updates")
-        print(f"- Skipped {len(invalid_updates)} invalid updates")
-        print(f"- Remaining stations with missing coordinates: {remaining_missing}")
-        
-        if remaining_missing > 0:
-            print("\nNote: Some stations still have missing coordinates. "
-                  "You may want to run the missing stations script again.")
-        
-        # Clean up backup if requested
-        if delete_backup and backup_file and os.path.exists(backup_file):
-            print(f"\nRemoving backup file: {backup_file}")
-            safe_remove_parquet(backup_file)
-            print("Backup file deleted")
-        else:
-            print(f"\nBackup file retained at: {backup_file}")
-        
-        return output_file
+        logging.info(f"Successfully applied {len(valid_updates)} coordinate updates")
+        return True
         
     except Exception as e:
-        if backup_file:
-            print(f"\nError occurred. Backup file preserved at: {backup_file}")
-        logging.error(f"Error updating coordinates: {str(e)}", exc_info=True)
-        raise
+        logging.error(f"Error applying updates: {str(e)}", exc_info=True)
+        return False
 
 if __name__ == "__main__":
     # File paths
     parquet_file = "data/processed/processed_data.parquet"
-    updates_csv = "data/geospatial/missing_stations.csv"
+    missing_stations_csv = "data/geospatial/missing_stations.csv"
     
     try:
-        print("Starting coordinate update process...")
-        updated_file = update_coordinates(parquet_file, updates_csv, delete_backup=True)
-        print("\nCoordinate update process completed successfully!")
+        # First, check for any new missing stations
+        print("\nChecking for missing stations...")
+        new_stations = detect_missing_stations(parquet_file, missing_stations_csv)
         
+        if new_stations > 0:
+            print(f"\nFound {new_stations} new stations with missing coordinates!")
+            print("Please update their coordinates in the CSV file")
+        
+        # Then, apply any updates from the CSV
+        print("\nApplying any coordinate updates from CSV...")
+        if apply_coordinate_updates(parquet_file, missing_stations_csv):
+            print("Successfully applied coordinate updates!")
+        else:
+            print("No updates were applied (check if there are any stations with 'updated' status in CSV)")
+            
     except Exception as e:
-        print(f"\nError during update process: {str(e)}")
+        print(f"\nError: {str(e)}")
         raise
