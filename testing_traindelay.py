@@ -366,7 +366,83 @@ class ImprovedCombinedDataAnalyzer:
         plots_dir = os.path.join(self.input_path, 'plots')
         os.makedirs(plots_dir, exist_ok=True)
         
-        # 1. Feature Importance Plot
+        # 1. Enhanced Delay Distribution Plot
+        plt.figure(figsize=(15, 10))
+        
+        # Create main subplot for KDE
+        plt.subplot(2, 1, 1)
+        
+        # Convert seconds to minutes for better readability
+        departure_delays = df['DEPARTURE_TIME_DIFF_SECONDS'] / 60
+        arrival_delays = df['ARRIVAL_TIME_DIFF_SECONDS'] / 60
+        
+        # Plot KDE with improved styling
+        sns.kdeplot(data=departure_delays, label='Departure', alpha=0.6, color='blue')
+        sns.kdeplot(data=arrival_delays, label='Arrival', alpha=0.6, color='red')
+        
+        # Add vertical line at 0 (on-time)
+        plt.axvline(x=0, color='black', linestyle='--', alpha=0.5, label='On Time')
+        
+        # Add descriptive labels
+        plt.xlabel('Delay (minutes)')
+        plt.ylabel('Density')
+        plt.title('Distribution of Train Delays\nKernel Density Estimation')
+        plt.legend()
+        
+        # Add text box with statistics
+        stats_text = (
+            f"Departure Delays:\n"
+            f"Mean: {departure_delays.mean():.1f} min\n"
+            f"Median: {departure_delays.median():.1f} min\n"
+            f"Std Dev: {departure_delays.std():.1f} min\n\n"
+            f"Arrival Delays:\n"
+            f"Mean: {arrival_delays.mean():.1f} min\n"
+            f"Median: {arrival_delays.median():.1f} min\n"
+            f"Std Dev: {arrival_delays.std():.1f} min"
+        )
+        plt.text(0.95, 0.95, stats_text, 
+                transform=plt.gca().transAxes, 
+                verticalalignment='top',
+                horizontalalignment='right',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        # Add histogram subplot for more detail
+        plt.subplot(2, 1, 2)
+        
+        # Create bins centered around zero
+        max_delay = max(abs(departure_delays.min()), abs(departure_delays.max()),
+                       abs(arrival_delays.min()), abs(arrival_delays.max()))
+        bins = np.linspace(-max_delay, max_delay, 50)
+        
+        # Plot histograms
+        plt.hist(departure_delays, bins=bins, alpha=0.5, label='Departure', color='blue')
+        plt.hist(arrival_delays, bins=bins, alpha=0.5, label='Arrival', color='red')
+        
+        plt.axvline(x=0, color='black', linestyle='--', alpha=0.5, label='On Time')
+        plt.xlabel('Delay (minutes)')
+        plt.ylabel('Frequency')
+        plt.title('Histogram of Train Delays')
+        plt.legend()
+        
+        # Add percentage annotations
+        on_time_threshold = 1  # Define on-time as within 1 minute
+        dep_on_time = (abs(departure_delays) <= on_time_threshold).mean() * 100
+        arr_on_time = (abs(arrival_delays) <= on_time_threshold).mean() * 100
+        
+        plt.text(0.95, 0.95, 
+                f"On-time performance (±{on_time_threshold} min):\n"
+                f"Departures: {dep_on_time:.1f}%\n"
+                f"Arrivals: {arr_on_time:.1f}%",
+                transform=plt.gca().transAxes,
+                verticalalignment='top',
+                horizontalalignment='right',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, 'delay_distribution.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # 2. Feature Importance Plot
         plt.figure(figsize=(15, 10))
         for i, (target, model_info) in enumerate(models.items(), 1):
             plt.subplot(2, 1, i)
@@ -377,15 +453,27 @@ class ImprovedCombinedDataAnalyzer:
         plt.savefig(os.path.join(plots_dir, 'feature_importance.png'))
         plt.close()
         
-        # 2. Delay Distribution Plot
-        plt.figure(figsize=(15, 6))
-        sns.kdeplot(data=df, x=df['DEPARTURE_TIME_DIFF_SECONDS']/60, label='Departure', alpha=0.5)
-        sns.kdeplot(data=df, x=df['ARRIVAL_TIME_DIFF_SECONDS']/60, label='Arrival', alpha=0.5)
-        plt.xlabel('Delay (minutes)')
-        plt.ylabel('Density')
-        plt.title('Distribution of Delays')
-        plt.legend()
-        plt.savefig(os.path.join(plots_dir, 'delay_distribution.png'))
+        # 3. Weather Impact Plot
+        plt.figure(figsize=(15, 10))
+        weather_cols_to_plot = self.weather_cols[:6] + ['TEMP_DEWPOINT_DIFF']
+        for i, weather_col in enumerate(weather_cols_to_plot, 1):
+            plt.subplot(3, 3, i)
+            plt.scatter(df[weather_col], df['DEPARTURE_TIME_DIFF_SECONDS']/60, 
+                       alpha=0.1, s=1)
+            plt.xlabel(weather_col)
+            plt.ylabel('Delay (minutes)')
+            plt.title(f'Impact of {weather_col}')
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, 'weather_impact.png'))
+        plt.close()
+        
+        # 4. Rush Hour Impact
+        plt.figure(figsize=(10, 6))
+        sns.boxplot(data=df, x='RUSH_HOUR', y=df['DEPARTURE_TIME_DIFF_SECONDS']/60)
+        plt.xlabel('Rush Hour (0/1)')
+        plt.ylabel('Delay (minutes)')
+        plt.title('Impact of Rush Hour on Delays')
+        plt.savefig(os.path.join(plots_dir, 'rush_hour_impact.png'))
         plt.close()
         
         # 3. Weather Impact Plot
