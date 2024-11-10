@@ -366,7 +366,37 @@ class ImprovedCombinedDataAnalyzer:
         plots_dir = os.path.join(self.input_path, 'plots')
         os.makedirs(plots_dir, exist_ok=True)
         
-        # 1. Enhanced Delay Distribution Plot
+        # 1. Enhanced Feature Importance Plot
+        self.create_feature_importance_plot(models, plots_dir)
+        
+        # 2. Enhanced Delay Distribution Plot
+        self.create_delay_distribution_plot(df, plots_dir)
+        
+        # 3. Weather Impact Plot
+        plt.figure(figsize=(15, 10))
+        weather_cols_to_plot = self.weather_cols[:6] + ['TEMP_DEWPOINT_DIFF']
+        for i, weather_col in enumerate(weather_cols_to_plot, 1):
+            plt.subplot(3, 3, i)
+            plt.scatter(df[weather_col], df['DEPARTURE_TIME_DIFF_SECONDS']/60, 
+                    alpha=0.1, s=1)
+            plt.xlabel(weather_col)
+            plt.ylabel('Delay (minutes)')
+            plt.title(f'Impact of {weather_col}')
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, 'weather_impact.png'))
+        plt.close()
+        
+        # 4. Rush Hour Impact
+        plt.figure(figsize=(10, 6))
+        sns.boxplot(data=df, x='RUSH_HOUR', y=df['DEPARTURE_TIME_DIFF_SECONDS']/60)
+        plt.xlabel('Rush Hour (0/1)')
+        plt.ylabel('Delay (minutes)')
+        plt.title('Impact of Rush Hour on Delays')
+        plt.savefig(os.path.join(plots_dir, 'rush_hour_impact.png'))
+        plt.close()
+
+    def create_delay_distribution_plot(self, df, plots_dir):
+        """Create enhanced delay distribution visualization."""
         plt.figure(figsize=(15, 10))
         
         # Create main subplot for KDE
@@ -411,7 +441,7 @@ class ImprovedCombinedDataAnalyzer:
         
         # Create bins centered around zero
         max_delay = max(abs(departure_delays.min()), abs(departure_delays.max()),
-                       abs(arrival_delays.min()), abs(arrival_delays.max()))
+                    abs(arrival_delays.min()), abs(arrival_delays.max()))
         bins = np.linspace(-max_delay, max_delay, 50)
         
         # Plot histograms
@@ -442,61 +472,126 @@ class ImprovedCombinedDataAnalyzer:
         plt.savefig(os.path.join(plots_dir, 'delay_distribution.png'), dpi=300, bbox_inches='tight')
         plt.close()
 
-        # 2. Feature Importance Plot
-        plt.figure(figsize=(15, 10))
-        for i, (target, model_info) in enumerate(models.items(), 1):
-            plt.subplot(2, 1, i)
+    def create_feature_importance_plot(self, models, plots_dir):
+        """Create enhanced feature importance visualization."""
+        import textwrap
+        
+        # Use a default matplotlib style
+        plt.style.use('default')
+        
+        # Create figure with more space and better spacing
+        fig = plt.figure(figsize=(15, 14))  # Increased height
+        gs = plt.GridSpec(2, 1, height_ratios=[1, 1], hspace=0.3)  # Added more space between subplots
+        ax1 = fig.add_subplot(gs[0])
+        ax2 = fig.add_subplot(gs[1])
+        
+        # Add main title with padding
+        fig.suptitle('Feature Importance Analysis for Train Delay Prediction', 
+                    fontsize=16, y=0.98)  # Moved title up
+        
+        # Color palette based on your feature categories
+        colors = {
+            'numeric': '#2ecc71',     # Green for numeric features
+            'categorical': '#3498db', # Blue for categorical features
+            'binary': '#e74c3c',     # Red for binary features
+            'delay': '#9b59b6'       # Purple for delay features
+        }
+        
+        # Feature categories based on your actual data
+        feature_categories = {
+            'numeric': [
+                'ABFAHRTSZEIT_MINUTES', 'ANKUNFTSZEIT_MINUTES', 'HOUR', 
+                'STATION_LAT', 'STATION_LON', 'ROUTE_DISTANCE',
+                'CUMULATIVE_DISTANCE', 'JOURNEY_PROGRESS', 'REMAINING_STOPS',
+                'temperature_2m', 'dewpoint_2m', 'wind_speed', 'wind_direction',
+                'surface_pressure', 'total_precipitation', 'snow_cover',
+                'solar_radiation', 'TEMP_DEWPOINT_DIFF', 'HISTORICAL_DELAY_PATTERN',
+                'DELAY_TREND'
+            ],
+            'categorical': [
+                'ZUSATZFAHRT_TF_encoded', 'FAELLT_AUS_TF_encoded',
+                'DURCHFAHRT_TF_encoded', 'LINIEN_ID_encoded',
+                'LINIEN_TEXT_encoded', 'HALTESTELLEN_NAME_encoded'
+            ],
+            'binary': ['SEVERE_WEATHER', 'RUSH_HOUR'],
+            'delay': ['PREV_STATION_DELAY']
+        }
+        
+        def get_feature_category(feature_name):
+            for category, features in feature_categories.items():
+                if feature_name in features:
+                    return category
+            return 'numeric'  # default category
+        
+        for idx, (target, model_info) in enumerate(models.items()):
+            ax = ax1 if idx == 0 else ax2
             importances = model_info['feature_importance'].head(15)
-            sns.barplot(data=importances, x='importance', y='feature')
-            plt.title(f'Top 15 Features for {target.title()} Delay Prediction')
-        plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, 'feature_importance.png'))
-        plt.close()
+            
+            # Add category colors
+            bar_colors = [colors[get_feature_category(feature)] for feature in importances['feature']]
+            
+            # Create horizontal bar plot
+            bars = ax.barh(range(len(importances)), importances['importance'], 
+                        color=bar_colors, alpha=0.8)
+            
+            # Add value labels on the bars
+            for i, v in enumerate(importances['importance']):
+                ax.text(v, i, f'{v:.3f}', va='center', fontsize=10)
+            
+            # Customize y-axis labels with wrapped text
+            ylabels = ['\n'.join(textwrap.wrap(str(feature), width=30)) 
+                    for feature in importances['feature']]
+            ax.set_yticks(range(len(importances)))
+            ax.set_yticklabels(ylabels)
+            
+            # Add grid for better readability
+            ax.grid(True, axis='x', linestyle='--', alpha=0.7)
+            
+            # Set titles and labels with better spacing
+            subplot_title = (
+                f'Top 15 Features: {target.title()} Delay Prediction\n'
+                f'R² Score: {model_info["metrics"]["r2"]:.3f}, RMSE: {model_info["metrics"]["rmse"]/60:.2f} minutes'
+            )
+            ax.set_title(subplot_title, pad=20, fontsize=14)
+            ax.set_xlabel('Feature Importance Score', fontsize=12)
+            
+            # Add feature category legend with adjusted position
+            legend_elements = [
+                plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.8,
+                            label=f'{category.title()} Features')
+                for category, color in colors.items()
+            ]
+            ax.legend(handles=legend_elements, 
+                    loc='center left', 
+                    title='Feature Categories', 
+                    bbox_to_anchor=(1.02, 0.5))
+            
+            # Add performance text with adjusted position
+            metrics_text = (
+                f"Performance Summary:\n"
+                f"• R² Score: {model_info['metrics']['r2']:.3f}\n"
+                f"• RMSE: {model_info['metrics']['rmse']/60:.2f} minutes\n\n"
+                f"Top Feature Categories:\n"
+                f"• {get_feature_category(importances['feature'].iloc[0])}: "
+                f"{importances['importance'].iloc[0]:.3f}\n"
+                f"• {get_feature_category(importances['feature'].iloc[1])}: "
+                f"{importances['importance'].iloc[1]:.3f}"
+            )
+            ax.text(1.02, -0.1, metrics_text, transform=ax.transAxes,
+                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'),
+                    fontsize=10, verticalalignment='top')
         
-        # 3. Weather Impact Plot
-        plt.figure(figsize=(15, 10))
-        weather_cols_to_plot = self.weather_cols[:6] + ['TEMP_DEWPOINT_DIFF']
-        for i, weather_col in enumerate(weather_cols_to_plot, 1):
-            plt.subplot(3, 3, i)
-            plt.scatter(df[weather_col], df['DEPARTURE_TIME_DIFF_SECONDS']/60, 
-                       alpha=0.1, s=1)
-            plt.xlabel(weather_col)
-            plt.ylabel('Delay (minutes)')
-            plt.title(f'Impact of {weather_col}')
-        plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, 'weather_impact.png'))
-        plt.close()
+        # Adjust layout with more space
+        plt.subplots_adjust(
+            right=0.85,    # Make room for legends
+            top=0.92,      # Make room for main title
+            bottom=0.08,   # Make room for xlabel
+            hspace=0.4     # Increase space between subplots
+        )
         
-        # 4. Rush Hour Impact
-        plt.figure(figsize=(10, 6))
-        sns.boxplot(data=df, x='RUSH_HOUR', y=df['DEPARTURE_TIME_DIFF_SECONDS']/60)
-        plt.xlabel('Rush Hour (0/1)')
-        plt.ylabel('Delay (minutes)')
-        plt.title('Impact of Rush Hour on Delays')
-        plt.savefig(os.path.join(plots_dir, 'rush_hour_impact.png'))
-        plt.close()
-        
-        # 3. Weather Impact Plot
-        plt.figure(figsize=(15, 10))
-        weather_cols_to_plot = self.weather_cols[:6] + ['TEMP_DEWPOINT_DIFF']
-        for i, weather_col in enumerate(weather_cols_to_plot, 1):
-            plt.subplot(3, 3, i)
-            plt.scatter(df[weather_col], df['DEPARTURE_TIME_DIFF_SECONDS']/60, 
-                       alpha=0.1, s=1)
-            plt.xlabel(weather_col)
-            plt.ylabel('Delay (minutes)')
-            plt.title(f'Impact of {weather_col}')
-        plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, 'weather_impact.png'))
-        plt.close()
-        
-        # 4. Rush Hour Impact
-        plt.figure(figsize=(10, 6))
-        sns.boxplot(data=df, x='RUSH_HOUR', y=df['DEPARTURE_TIME_DIFF_SECONDS']/60)
-        plt.xlabel('Rush Hour (0/1)')
-        plt.ylabel('Delay (minutes)')
-        plt.title('Impact of Rush Hour on Delays')
-        plt.savefig(os.path.join(plots_dir, 'rush_hour_impact.png'))
+        # Save high-resolution plot
+        plt.savefig(os.path.join(plots_dir, 'feature_importance.png'), 
+                    dpi=300, bbox_inches='tight')
         plt.close()
 
     def save_results(self, df, models):
