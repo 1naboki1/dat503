@@ -71,15 +71,15 @@ class ImprovedCombinedDataAnalyzer:
         """Add engineered features to improve model performance."""
         print("\nEngineering additional features...")
         
-        # Time-based features
-        df['HOUR'] = df['ABFAHRTSZEIT_MINUTES'] // 60
-        df['RUSH_HOUR'] = ((df['HOUR'] >= 7) & (df['HOUR'] <= 9) | 
-                          (df['HOUR'] >= 16) & (df['HOUR'] <= 18)).astype(int)
+        # Time-based features from scheduled times
+        df['SCHEDULED_HOUR'] = df['ABFAHRTSZEIT_MINUTES'] // 60
+        df['RUSH_HOUR'] = ((df['SCHEDULED_HOUR'] >= 7) & (df['SCHEDULED_HOUR'] <= 9) | 
+                          (df['SCHEDULED_HOUR'] >= 16) & (df['SCHEDULED_HOUR'] <= 18)).astype(int)
         
         # Create a temporary journey identifier using date and line information
         df['DATE'] = pd.to_datetime(df['datetime']).dt.date
         df['TEMP_JOURNEY_ID'] = df.apply(
-            lambda x: f"{x['DATE']}_{x['LINIEN_ID_encoded']}_{x['ABFAHRTSZEIT_MINUTES'] // (24*60)}", 
+            lambda x: f"{x['DATE']}_{x['LINIEN_ID_encoded']}_{x['SCHEDULED_HOUR']}", 
             axis=1
         )
         
@@ -148,12 +148,15 @@ class ImprovedCombinedDataAnalyzer:
         
         return df
 
-    
-
     def prepare_features(self, df):
         """Prepare and preprocess features for modeling."""
-        # Define feature groups
-        time_features = ['ABFAHRTSZEIT_MINUTES', 'ANKUNFTSZEIT_MINUTES', 'HOUR']
+        # Define feature groups, excluding actual arrival/departure times
+        time_features = [
+            'SCHEDULED_HOUR',
+            'ABFAHRTSZEIT_DAY_OF_WEEK',
+            'ABFAHRTSZEIT_MONTH',
+            'ABFAHRTSZEIT_IS_WEEKEND'
+        ]
         
         geo_features = [
             'STATION_LAT', 'STATION_LON', 'ROUTE_DISTANCE', 
@@ -162,7 +165,14 @@ class ImprovedCombinedDataAnalyzer:
         
         weather_features = self.weather_cols + ['TEMP_DEWPOINT_DIFF']
         
-        categorical_features = [col for col in df.columns if col.endswith('_encoded')]
+        categorical_features = [
+            'ZUSATZFAHRT_TF_encoded',
+            'FAELLT_AUS_TF_encoded',
+            'DURCHFAHRT_TF_encoded',
+            'LINIEN_ID_encoded',
+            'LINIEN_TEXT_encoded',
+            'HALTESTELLEN_NAME_encoded'
+        ]
         
         engineered_features = [
             'RUSH_HOUR', 'SEVERE_WEATHER', 'HISTORICAL_DELAY_PATTERN',
@@ -213,7 +223,7 @@ class ImprovedCombinedDataAnalyzer:
                 ('num', numeric_transformer, numeric_features),
                 ('cat', 'passthrough', categorical_features),
                 ('bin', 'passthrough', binary_features),
-                ('delay', 'passthrough', delay_features)  # Pass through delay features without transformation
+                ('delay', 'passthrough', delay_features)
             ],
             verbose_feature_names_out=True
         )
@@ -324,24 +334,13 @@ class ImprovedCombinedDataAnalyzer:
             print(f"R² Score: {r2:.3f}")
             print(f"RMSE: {rmse/60:.2f} minutes")
             
-            # Get feature names and importance
+            # Get feature importance safely
             feature_names = X_filtered.columns.tolist()
             feature_importance = model.named_steps['regressor'].feature_importances_
             
-            print(f"\nFeature array shapes:")
-            print(f"Number of feature names: {len(feature_names)}")
-            print(f"Number of importance values: {len(feature_importance)}")
-            
-            # Find the extra feature
-            if len(feature_names) > len(feature_importance):
-                print("\nExtra feature found:")
-                print(feature_names[-1])
-                # Remove the extra feature
-                feature_names = feature_names[:-1]
-            
-            # Create DataFrame safely
+            # Create feature importance DataFrame
             importances = pd.DataFrame({
-                'feature': feature_names,
+                'feature': feature_names[:len(feature_importance)],  # Ensure matching lengths
                 'importance': feature_importance
             }).sort_values('importance', ascending=False)
             
@@ -359,7 +358,6 @@ class ImprovedCombinedDataAnalyzer:
             }
         
         return models
-    
 
     def create_visualizations(self, df, models):
         """Create and save analysis visualizations."""
@@ -476,37 +474,31 @@ class ImprovedCombinedDataAnalyzer:
         """Create enhanced feature importance visualization."""
         import textwrap
         
-        # Use a default matplotlib style
         plt.style.use('default')
-        
-        # Create figure with more space and better spacing
-        fig = plt.figure(figsize=(15, 14))  # Increased height
-        gs = plt.GridSpec(2, 1, height_ratios=[1, 1], hspace=0.3)  # Added more space between subplots
+        fig = plt.figure(figsize=(15, 14))
+        gs = plt.GridSpec(2, 1, height_ratios=[1, 1], hspace=0.3)
         ax1 = fig.add_subplot(gs[0])
         ax2 = fig.add_subplot(gs[1])
         
-        # Add main title with padding
         fig.suptitle('Feature Importance Analysis for Train Delay Prediction', 
-                    fontsize=16, y=0.98)  # Moved title up
+                    fontsize=16, y=0.98)
         
-        # Color palette based on your feature categories
         colors = {
-            'numeric': '#2ecc71',     # Green for numeric features
-            'categorical': '#3498db', # Blue for categorical features
-            'binary': '#e74c3c',     # Red for binary features
-            'delay': '#9b59b6'       # Purple for delay features
+            'numeric': '#2ecc71',    
+            'categorical': '#3498db',
+            'binary': '#e74c3c',    
+            'delay': '#9b59b6'      
         }
         
-        # Feature categories based on your actual data
         feature_categories = {
             'numeric': [
-                'ABFAHRTSZEIT_MINUTES', 'ANKUNFTSZEIT_MINUTES', 'HOUR', 
-                'STATION_LAT', 'STATION_LON', 'ROUTE_DISTANCE',
-                'CUMULATIVE_DISTANCE', 'JOURNEY_PROGRESS', 'REMAINING_STOPS',
-                'temperature_2m', 'dewpoint_2m', 'wind_speed', 'wind_direction',
-                'surface_pressure', 'total_precipitation', 'snow_cover',
-                'solar_radiation', 'TEMP_DEWPOINT_DIFF', 'HISTORICAL_DELAY_PATTERN',
-                'DELAY_TREND'
+                'SCHEDULED_HOUR', 'ABFAHRTSZEIT_DAY_OF_WEEK', 
+                'ABFAHRTSZEIT_MONTH', 'STATION_LAT', 'STATION_LON',
+                'ROUTE_DISTANCE', 'CUMULATIVE_DISTANCE', 'JOURNEY_PROGRESS',
+                'REMAINING_STOPS', 'temperature_2m', 'dewpoint_2m',
+                'wind_speed', 'wind_direction', 'surface_pressure',
+                'total_precipitation', 'snow_cover', 'solar_radiation',
+                'TEMP_DEWPOINT_DIFF', 'HISTORICAL_DELAY_PATTERN', 'DELAY_TREND'
             ],
             'categorical': [
                 'ZUSATZFAHRT_TF_encoded', 'FAELLT_AUS_TF_encoded',
@@ -521,33 +513,27 @@ class ImprovedCombinedDataAnalyzer:
             for category, features in feature_categories.items():
                 if feature_name in features:
                     return category
-            return 'numeric'  # default category
+            return 'numeric'
         
         for idx, (target, model_info) in enumerate(models.items()):
             ax = ax1 if idx == 0 else ax2
             importances = model_info['feature_importance'].head(15)
             
-            # Add category colors
             bar_colors = [colors[get_feature_category(feature)] for feature in importances['feature']]
             
-            # Create horizontal bar plot
             bars = ax.barh(range(len(importances)), importances['importance'], 
                         color=bar_colors, alpha=0.8)
             
-            # Add value labels on the bars
             for i, v in enumerate(importances['importance']):
                 ax.text(v, i, f'{v:.3f}', va='center', fontsize=10)
             
-            # Customize y-axis labels with wrapped text
             ylabels = ['\n'.join(textwrap.wrap(str(feature), width=30)) 
                     for feature in importances['feature']]
             ax.set_yticks(range(len(importances)))
             ax.set_yticklabels(ylabels)
             
-            # Add grid for better readability
             ax.grid(True, axis='x', linestyle='--', alpha=0.7)
             
-            # Set titles and labels with better spacing
             subplot_title = (
                 f'Top 15 Features: {target.title()} Delay Prediction\n'
                 f'R² Score: {model_info["metrics"]["r2"]:.3f}, RMSE: {model_info["metrics"]["rmse"]/60:.2f} minutes'
@@ -555,7 +541,6 @@ class ImprovedCombinedDataAnalyzer:
             ax.set_title(subplot_title, pad=20, fontsize=14)
             ax.set_xlabel('Feature Importance Score', fontsize=12)
             
-            # Add feature category legend with adjusted position
             legend_elements = [
                 plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.8,
                             label=f'{category.title()} Features')
@@ -566,7 +551,6 @@ class ImprovedCombinedDataAnalyzer:
                     title='Feature Categories', 
                     bbox_to_anchor=(1.02, 0.5))
             
-            # Add performance text with adjusted position
             metrics_text = (
                 f"Performance Summary:\n"
                 f"• R² Score: {model_info['metrics']['r2']:.3f}\n"
@@ -581,22 +565,13 @@ class ImprovedCombinedDataAnalyzer:
                     bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'),
                     fontsize=10, verticalalignment='top')
         
-        # Adjust layout with more space
-        plt.subplots_adjust(
-            right=0.85,    # Make room for legends
-            top=0.92,      # Make room for main title
-            bottom=0.08,   # Make room for xlabel
-            hspace=0.4     # Increase space between subplots
-        )
-        
-        # Save high-resolution plot
+        plt.subplots_adjust(right=0.85, top=0.92, bottom=0.08, hspace=0.4)
         plt.savefig(os.path.join(plots_dir, 'feature_importance.png'), 
                     dpi=300, bbox_inches='tight')
         plt.close()
 
     def save_results(self, df, models):
         """Save models and analysis results."""
-        # Create output directories
         models_dir = os.path.join(self.input_path, 'models')
         os.makedirs(models_dir, exist_ok=True)
         
