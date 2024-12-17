@@ -136,7 +136,9 @@ class OptimizedTrainDelayAnalyzer:
         # Drop temporary and redundant columns
         columns_to_drop = [
             'DATE', 'TEMP_JOURNEY_ID', 'NEXT_LAT', 'NEXT_LON', 'TOTAL_STOPS',
-            'STATION_LAT', 'STATION_LON'  # Remove coordinate columns
+            'STATION_LAT', 'STATION_LON',  # Remove coordinate columns
+            'LINIEN_TEXT_encoded',  # Remove redundant line text
+            'FAELLT_AUS_TF_encoded'  # Remove constant cancelled trains feature
         ]
         df = df.drop(columns_to_drop, axis=1)
         
@@ -171,10 +173,8 @@ class OptimizedTrainDelayAnalyzer:
         
         categorical_features = [
             'ZUSATZFAHRT_TF_encoded',
-            'FAELLT_AUS_TF_encoded',
             'DURCHFAHRT_TF_encoded',
             'LINIEN_ID_encoded',
-            'LINIEN_TEXT_encoded',
             'HALTESTELLEN_NAME_encoded'
         ]
         
@@ -336,7 +336,6 @@ class OptimizedTrainDelayAnalyzer:
                 'importance': perm_importance.importances_mean,
                 'importance_std': perm_importance.importances_std
             }).sort_values('importance', ascending=False)
-            
             models[target] = {
                 'model': model,
                 'metrics': {
@@ -349,7 +348,6 @@ class OptimizedTrainDelayAnalyzer:
             }
             
             # Print results
-# Print results
             print(f"\n{target.title()} Model Performance:")
             print(f"Best parameters: {grid_search.best_params_}")
             print(f"R² Score: {r2:.3f}")
