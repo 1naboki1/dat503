@@ -35,22 +35,20 @@ class OptimizedTrainDelayAnalyzer:
         self.cluster = None
         self.client = None
         
-        # Restored original model parameters
         self.model_params = {
-            'n_estimators': 200,         # Restored to original value
-            'max_depth': 20,            # Restored to original value
+            'n_estimators': 200,
+            'max_depth': 20,
             'min_samples_split': 10,
             'min_samples_leaf': 5,
             'max_features': 'sqrt',
             'n_jobs': -1,
             'random_state': 42,
-            'bootstrap': True,           # Added for robustness
-            'oob_score': True,          # Re-enabled
-            'warm_start': False         # Prevent potential issues
+            'bootstrap': True,
+            'oob_score': True,
+            'warm_start': False
         }
         
         self.feature_cols = None
-        self.geo_cols = ['STATION_LAT', 'STATION_LON']
         self.weather_cols = [
             'temperature_2m', 'dewpoint_2m',  
             'wind_speed', 'wind_direction', 'surface_pressure',
@@ -92,10 +90,8 @@ class OptimizedTrainDelayAnalyzer:
             axis=1
         )
         
-        # Sort efficiently
+        # Calculate distances first using LAT/LON
         df = df.sort_values(['TEMP_JOURNEY_ID', 'ABFAHRTSZEIT_MINUTES'])
-        
-        # Calculate distances vectorized
         df['NEXT_LAT'] = df.groupby('TEMP_JOURNEY_ID')['STATION_LAT'].shift(-1)
         df['NEXT_LON'] = df.groupby('TEMP_JOURNEY_ID')['STATION_LON'].shift(-1)
         
@@ -137,8 +133,12 @@ class OptimizedTrainDelayAnalyzer:
         df['TOTAL_STOPS'] = df.groupby('TEMP_JOURNEY_ID')['STATION_SEQUENCE'].transform('max')
         df['REMAINING_STOPS'] = df['TOTAL_STOPS'] - df['STATION_SEQUENCE']
         
-        # Clean up temporary columns
-        df = df.drop(['DATE', 'TEMP_JOURNEY_ID', 'NEXT_LAT', 'NEXT_LON', 'TOTAL_STOPS'], axis=1)
+        # Drop temporary and redundant columns
+        columns_to_drop = [
+            'DATE', 'TEMP_JOURNEY_ID', 'NEXT_LAT', 'NEXT_LON', 'TOTAL_STOPS',
+            'STATION_LAT', 'STATION_LON'  # Remove coordinate columns
+        ]
+        df = df.drop(columns_to_drop, axis=1)
         
         # Convert float columns to float32 for memory efficiency
         float_cols = df.select_dtypes(include=['float64']).columns
@@ -161,8 +161,10 @@ class OptimizedTrainDelayAnalyzer:
         ]
         
         geo_features = [
-            'STATION_LAT', 'STATION_LON', 'ROUTE_DISTANCE', 
-            'CUMULATIVE_DISTANCE', 'JOURNEY_PROGRESS', 'REMAINING_STOPS'
+            'ROUTE_DISTANCE', 
+            'CUMULATIVE_DISTANCE', 
+            'JOURNEY_PROGRESS', 
+            'REMAINING_STOPS'
         ]
         
         weather_features = self.weather_cols + ['TEMP_DEWPOINT_DIFF']
@@ -347,6 +349,7 @@ class OptimizedTrainDelayAnalyzer:
             }
             
             # Print results
+# Print results
             print(f"\n{target.title()} Model Performance:")
             print(f"Best parameters: {grid_search.best_params_}")
             print(f"R² Score: {r2:.3f}")
@@ -360,7 +363,7 @@ class OptimizedTrainDelayAnalyzer:
 
     def create_feature_importance_plot(self, models, plots_dir):
         """Create enhanced feature importance visualization."""
-        plt.style.use('default')  # Use default style instead of seaborn
+        plt.style.use('default')
         fig = plt.figure(figsize=(15, 20))
         gs = plt.GridSpec(2, 1, height_ratios=[1, 1], hspace=0.3)
         
@@ -368,13 +371,11 @@ class OptimizedTrainDelayAnalyzer:
             ax = fig.add_subplot(gs[idx])
             importances = model_info['feature_importance'].head(15)
             
-            # Create horizontal bar plot
             bars = ax.barh(range(len(importances)), importances['importance'],
                         xerr=importances['importance_std'],
                         alpha=0.8, capsize=5,
-                        color='royalblue')  # Add specific color
+                        color='royalblue')
             
-            # Customize plot
             ax.set_yticks(range(len(importances)))
             ax.set_yticklabels(importances['feature'])
             ax.set_xlabel('Feature Importance Score')
@@ -382,7 +383,6 @@ class OptimizedTrainDelayAnalyzer:
                         f'R² Score: {model_info["metrics"]["r2"]:.3f}, '
                         f'RMSE: {model_info["metrics"]["rmse"]/60:.2f} minutes')
             
-            # Add grid
             ax.grid(True, axis='x', linestyle='--', alpha=0.7)
         
         plt.suptitle('Feature Importance Analysis', fontsize=16, y=0.95)
@@ -394,57 +394,12 @@ class OptimizedTrainDelayAnalyzer:
         """Create enhanced delay distribution visualization."""
         plt.figure(figsize=(15, 10))
         
-        # Main subplot for histogram
-        plt.subplot(2, 1, 1)
-        
-        # Convert to minutes for better readability
-        departure_delays = df['DEPARTURE_TIME_DIFF_SECONDS'] / 60
-        arrival_delays = df['ARRIVAL_TIME_DIFF_SECONDS'] / 60
-        
-        # Plot histograms
-        plt.hist(departure_delays, bins=50, alpha=0.5, label='Departure', color='royalblue')
-        plt.hist(arrival_delays, bins=50, alpha=0.5, label='Arrival', color='crimson')
-        
-        plt.axvline(x=0, color='black', linestyle='--', alpha=0.5)
-        plt.xlabel('Delay (minutes)')
-        plt.ylabel('Frequency')
-        plt.title('Distribution of Train Delays')
-        plt.legend()
-        
-        # Add statistics
-        stats_text = (
-            f"Departure Delays:\n"
-            f"Mean: {departure_delays.mean():.1f} min\n"
-            f"Median: {departure_delays.median():.1f} min\n"
-            f"Std Dev: {departure_delays.std():.1f} min\n\n"
-            f"Arrival Delays:\n"
-            f"Mean: {arrival_delays.mean():.1f} min\n"
-            f"Median: {arrival_delays.median():.1f} min\n"
-            f"Std Dev: {arrival_delays.std():.1f} min"
-        )
-        
-        plt.text(0.95, 0.95, stats_text,
-                transform=plt.gca().transAxes,
-                verticalalignment='top',
-                horizontalalignment='right',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        
-        plt.savefig(os.path.join(plots_dir, 'delay_distribution.png'), 
-                    dpi=300, bbox_inches='tight')
-        plt.close()
-
-    def create_delay_distribution_plot(self, df, plots_dir):
-        """Create enhanced delay distribution visualization."""
-        plt.figure(figsize=(15, 10))
-        
         # Main subplot for KDE
         plt.subplot(2, 1, 1)
         
-        # Convert to minutes for better readability
         departure_delays = df['DEPARTURE_TIME_DIFF_SECONDS'] / 60
         arrival_delays = df['ARRIVAL_TIME_DIFF_SECONDS'] / 60
         
-        # Plot KDE
         sns.kdeplot(data=departure_delays, label='Departure', alpha=0.6)
         sns.kdeplot(data=arrival_delays, label='Arrival', alpha=0.6)
         
@@ -454,7 +409,6 @@ class OptimizedTrainDelayAnalyzer:
         plt.title('Distribution of Train Delays')
         plt.legend()
         
-        # Add statistics
         stats_text = (
             f"Departure Delays:\n"
             f"Mean: {departure_delays.mean():.1f} min\n"
@@ -492,12 +446,10 @@ class OptimizedTrainDelayAnalyzer:
         for i, (feature, label) in enumerate(weather_impacts, 1):
             plt.subplot(2, 3, i)
             
-            # Create scatter plot with trend line
             plt.scatter(df[feature], 
                     df['DEPARTURE_TIME_DIFF_SECONDS'] / 60,
                     alpha=0.1, s=1, color='royalblue')
             
-            # Add trend line
             z = np.polyfit(df[feature], 
                         df['DEPARTURE_TIME_DIFF_SECONDS'] / 60, 1)
             p = np.poly1d(z)
@@ -508,7 +460,6 @@ class OptimizedTrainDelayAnalyzer:
             plt.ylabel('Delay (minutes)')
             plt.title(f'Impact of {label} on Delays')
             
-            # Add correlation coefficient
             corr = df[feature].corr(df['DEPARTURE_TIME_DIFF_SECONDS'])
             plt.text(0.05, 0.95, f'Correlation: {corr:.3f}',
                     transform=plt.gca().transAxes,
@@ -528,13 +479,11 @@ class OptimizedTrainDelayAnalyzer:
         r2_scores = [info['metrics']['r2'] for info in models.values()]
         rmse_scores = [info['metrics']['rmse']/60 for info in models.values()]
         
-        # R² Score plot
         ax1.bar(model_names, r2_scores, color='royalblue', alpha=0.7)
         ax1.set_ylabel('R² Score')
         ax1.set_title('R² Score by Model')
         ax1.grid(True, linestyle='--', alpha=0.7)
         
-        # RMSE plot
         ax2.bar(model_names, rmse_scores, color='crimson', alpha=0.7)
         ax2.set_ylabel('RMSE (minutes)')
         ax2.set_title('RMSE by Model')
@@ -552,16 +501,9 @@ class OptimizedTrainDelayAnalyzer:
         plots_dir = os.path.join(self.input_path, 'plots')
         os.makedirs(plots_dir, exist_ok=True)
         
-        # Create feature importance plot
         self.create_feature_importance_plot(models, plots_dir)
-        
-        # Create delay distribution plot
         self.create_delay_distribution_plot(df, plots_dir)
-        
-        # Create weather impact plot
         self.create_weather_impact_plot(df, plots_dir)
-        
-        # Create model performance plot
         self.create_model_performance_plot(models, plots_dir)
 
     def save_results(self, df, models):
@@ -569,17 +511,13 @@ class OptimizedTrainDelayAnalyzer:
         models_dir = os.path.join(self.input_path, 'models')
         os.makedirs(models_dir, exist_ok=True)
         
-        # Save models and results
         for target, model_info in models.items():
-            # Save model
             model_path = os.path.join(models_dir, f'{target}_model.joblib')
             joblib.dump(model_info['model'], model_path)
             
-            # Save feature importances
             importance_path = os.path.join(models_dir, f'{target}_feature_importance.csv')
             model_info['feature_importance'].to_csv(importance_path, index=False)
             
-            # Save cross-validation results
             cv_results_path = os.path.join(models_dir, f'{target}_cv_results.json')
             cv_results = {
                 'best_params': model_info['metrics']['best_params'],
@@ -589,7 +527,6 @@ class OptimizedTrainDelayAnalyzer:
             with open(cv_results_path, 'w') as f:
                 json.dump(cv_results, f, indent=2)
         
-        # Save analysis summary
         summary = {
             'analysis_date': datetime.now().isoformat(),
             'data_shape': df.shape,
@@ -613,33 +550,26 @@ class OptimizedTrainDelayAnalyzer:
         try:
             self.initialize_cluster()
             
-            # Find all parquet files
             parquet_files = glob(os.path.join(self.input_path, "*.parquet"))
             if not parquet_files:
                 raise ValueError(f"No parquet files found in {self.input_path}")
             
             print(f"\nFound {len(parquet_files)} parquet files")
             
-            # Read and combine parquet files
             print("\nReading and combining parquet files...")
             ddf = dd.read_parquet(parquet_files)
             
-            # Convert to pandas for modeling
             print("\nConverting to pandas DataFrame...")
             df = ddf.compute()
             
-            # Engineer features
             df = self.engineer_features(df)
             
-            # Train models
             print("\nTraining models...")
             models = self.train_models(df)
             
-            # Create visualizations
             print("\nGenerating visualizations...")
             self.create_visualizations(df, models)
             
-            # Save results
             print("\nSaving results...")
             self.save_results(df, models)
             
