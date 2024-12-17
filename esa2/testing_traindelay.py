@@ -9,13 +9,15 @@ from datetime import datetime
 import json
 import joblib
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
+from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from sklearn.inspection import permutation_importance
 import matplotlib.pyplot as plt
 import seaborn as sns
+import gc
 
 # Configure logging
 logging.basicConfig(
@@ -23,7 +25,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-class ImprovedCombinedDataAnalyzer:
+class OptimizedTrainDelayAnalyzer:
     """Handles combining multiple parquet files and training models with improved features and preprocessing."""
     
     def __init__(self, input_path: str, n_workers: int = 4, memory_per_worker: int = 8):
@@ -33,15 +35,18 @@ class ImprovedCombinedDataAnalyzer:
         self.cluster = None
         self.client = None
         
-        # Improved model parameters
+        # Restored original model parameters
         self.model_params = {
-            'n_estimators': 200,
-            'max_depth': 20,
+            'n_estimators': 200,         # Restored to original value
+            'max_depth': 20,            # Restored to original value
             'min_samples_split': 10,
             'min_samples_leaf': 5,
             'max_features': 'sqrt',
             'n_jobs': -1,
-            'random_state': 42
+            'random_state': 42,
+            'bootstrap': True,           # Added for robustness
+            'oob_score': True,          # Re-enabled
+            'warm_start': False         # Prevent potential issues
         }
         
         self.feature_cols = None
@@ -51,6 +56,7 @@ class ImprovedCombinedDataAnalyzer:
             'wind_speed', 'wind_direction', 'surface_pressure',
             'total_precipitation', 'snow_cover', 'solar_radiation'
         ]
+        self.initial_columns = None
 
     def initialize_cluster(self) -> None:
         """Initialize Dask cluster for distributed processing."""
@@ -68,44 +74,41 @@ class ImprovedCombinedDataAnalyzer:
         print(f"Dashboard: {self.client.dashboard_link}")
 
     def engineer_features(self, df):
-        """Add engineered features to improve model performance."""
+        """Add engineered features with improved performance."""
         print("\nEngineering additional features...")
+        
+        # Store initial columns
+        self.initial_columns = df.columns.tolist()
         
         # Time-based features from scheduled times
         df['SCHEDULED_HOUR'] = df['ABFAHRTSZEIT_MINUTES'] // 60
         df['RUSH_HOUR'] = ((df['SCHEDULED_HOUR'] >= 7) & (df['SCHEDULED_HOUR'] <= 9) | 
                           (df['SCHEDULED_HOUR'] >= 16) & (df['SCHEDULED_HOUR'] <= 18)).astype(int)
         
-        # Create a temporary journey identifier using date and line information
+        # Create a temporary journey identifier
         df['DATE'] = pd.to_datetime(df['datetime']).dt.date
         df['TEMP_JOURNEY_ID'] = df.apply(
             lambda x: f"{x['DATE']}_{x['LINIEN_ID_encoded']}_{x['SCHEDULED_HOUR']}", 
             axis=1
         )
         
-        # Sort by our temporary journey ID and time
+        # Sort efficiently
         df = df.sort_values(['TEMP_JOURNEY_ID', 'ABFAHRTSZEIT_MINUTES'])
         
-        # Calculate distances without using apply
+        # Calculate distances vectorized
         df['NEXT_LAT'] = df.groupby('TEMP_JOURNEY_ID')['STATION_LAT'].shift(-1)
         df['NEXT_LON'] = df.groupby('TEMP_JOURNEY_ID')['STATION_LON'].shift(-1)
         
-        # Calculate route distance using the current and next station
         df['ROUTE_DISTANCE'] = np.sqrt(
             np.square(df['NEXT_LAT'] - df['STATION_LAT']) + 
             np.square(df['NEXT_LON'] - df['STATION_LON'])
         )
-        
-        # Fill NaN values for last station in each journey
         df['ROUTE_DISTANCE'] = df['ROUTE_DISTANCE'].fillna(0)
         
-        # Calculate cumulative distance
+        # Calculate journey metrics
         df['CUMULATIVE_DISTANCE'] = df.groupby('TEMP_JOURNEY_ID')['ROUTE_DISTANCE'].cumsum()
         
-        # Calculate max distance for each journey
         max_distances = df.groupby('TEMP_JOURNEY_ID')['CUMULATIVE_DISTANCE'].transform('max')
-        
-        # Calculate journey progress (0-1)
         df['JOURNEY_PROGRESS'] = df['CUMULATIVE_DISTANCE'] / max_distances
         df['JOURNEY_PROGRESS'] = df['JOURNEY_PROGRESS'].fillna(0)
         
@@ -114,7 +117,7 @@ class ImprovedCombinedDataAnalyzer:
                               (df['total_precipitation'] > df['total_precipitation'].quantile(0.75))).astype(int)
         df['TEMP_DEWPOINT_DIFF'] = df['temperature_2m'] - df['dewpoint_2m']
         
-        # Previous station delay impact - now by journey
+        # Previous station delay impact
         df['PREV_STATION_DELAY'] = df.groupby('TEMP_JOURNEY_ID')['DEPARTURE_TIME_DIFF_SECONDS'].shift(1)
         df['PREV_STATION_DELAY'] = df['PREV_STATION_DELAY'].fillna(0)
         
@@ -122,15 +125,14 @@ class ImprovedCombinedDataAnalyzer:
         df['DELAY_TREND'] = df.groupby('TEMP_JOURNEY_ID')['DEPARTURE_TIME_DIFF_SECONDS'].diff()
         df['DELAY_TREND'] = df['DELAY_TREND'].fillna(0)
         
-        # Create time windows for aggregating historical delays
+        # Create time windows and historical patterns
         df['TIME_WINDOW'] = pd.to_datetime(df['datetime']).dt.floor('3H')
         
-        # Calculate historical delay patterns - by line and station
         df['HISTORICAL_DELAY_PATTERN'] = df.groupby(
             ['LINIEN_ID_encoded', 'HALTESTELLEN_NAME_encoded', 'TIME_WINDOW']
         )['DEPARTURE_TIME_DIFF_SECONDS'].transform('mean').fillna(0)
         
-        # Calculate station sequence and remaining stops
+        # Station sequence and remaining stops
         df['STATION_SEQUENCE'] = df.groupby('TEMP_JOURNEY_ID').cumcount()
         df['TOTAL_STOPS'] = df.groupby('TEMP_JOURNEY_ID')['STATION_SEQUENCE'].transform('max')
         df['REMAINING_STOPS'] = df['TOTAL_STOPS'] - df['STATION_SEQUENCE']
@@ -138,19 +140,19 @@ class ImprovedCombinedDataAnalyzer:
         # Clean up temporary columns
         df = df.drop(['DATE', 'TEMP_JOURNEY_ID', 'NEXT_LAT', 'NEXT_LON', 'TOTAL_STOPS'], axis=1)
         
-        # Fill any remaining NaN values
-        numeric_columns = df.select_dtypes(include=[np.number]).columns
-        df[numeric_columns] = df[numeric_columns].fillna(0)
+        # Convert float columns to float32 for memory efficiency
+        float_cols = df.select_dtypes(include=['float64']).columns
+        df[float_cols] = df[float_cols].astype('float32')
         
         print("\nNew features created:")
         new_features = [col for col in df.columns if col not in self.initial_columns]
         print(new_features)
         
         return df
-
+    
     def prepare_features(self, df):
         """Prepare and preprocess features for modeling."""
-        # Define feature groups, excluding actual arrival/departure times
+        # Define feature groups
         time_features = [
             'SCHEDULED_HOUR',
             'ABFAHRTSZEIT_DAY_OF_WEEK',
@@ -183,7 +185,7 @@ class ImprovedCombinedDataAnalyzer:
         self.feature_cols = (time_features + geo_features + weather_features + 
                            categorical_features + engineered_features)
         
-        # Get feature matrix and print column info
+        # Get feature matrix and print info
         X = df[self.feature_cols]
         print("\nFeature groups:")
         print(f"Time features: {time_features}")
@@ -200,11 +202,11 @@ class ImprovedCombinedDataAnalyzer:
         numeric_features = [col for col in self.feature_cols 
                           if not col.endswith('_encoded') 
                           and col not in ['SEVERE_WEATHER', 'RUSH_HOUR']
-                          and col != 'PREV_STATION_DELAY']  # Exclude PREV_STATION_DELAY from scaling
+                          and col != 'PREV_STATION_DELAY']
         
         categorical_features = [col for col in self.feature_cols if col.endswith('_encoded')]
         binary_features = ['SEVERE_WEATHER', 'RUSH_HOUR']
-        delay_features = ['PREV_STATION_DELAY']  # Handle separately
+        delay_features = ['PREV_STATION_DELAY']
         
         print("\nPreprocessing feature groups:")
         print(f"Numeric features: {numeric_features}")
@@ -214,7 +216,7 @@ class ImprovedCombinedDataAnalyzer:
         
         # Create preprocessing steps
         numeric_transformer = Pipeline(steps=[
-            ('scaler', RobustScaler())
+            ('scaler', RobustScaler(copy=False))
         ])
         
         # Create column transformer
@@ -225,11 +227,387 @@ class ImprovedCombinedDataAnalyzer:
                 ('bin', 'passthrough', binary_features),
                 ('delay', 'passthrough', delay_features)
             ],
-            verbose_feature_names_out=True
+            sparse_threshold=0,
+            n_jobs=4
         )
         
         return preprocessor
-    
+
+    def train_models(self, df):
+        """Train improved delay prediction models with enhanced validation."""
+        models = {}
+        
+        # Prepare feature matrix
+        X = self.prepare_features(df)
+        
+        # Handle missing values with more robust strategy
+        X_cleaned = X.copy()
+        for col in X.columns:
+            if col in self.weather_cols:
+                # Use robust statistics for weather data
+                median_val = X_cleaned[col].median()
+                iqr = X_cleaned[col].quantile(0.75) - X_cleaned[col].quantile(0.25)
+                lower_bound = median_val - 1.5 * iqr
+                upper_bound = median_val + 1.5 * iqr
+                
+                # Replace outliers with bounds
+                X_cleaned[col] = X_cleaned[col].clip(lower_bound, upper_bound)
+                # Fill remaining missing values with median
+                X_cleaned[col] = X_cleaned[col].fillna(median_val)
+            else:
+                X_cleaned[col] = X_cleaned[col].fillna(0)
+        
+        # Convert float64 to float32
+        float_cols = X_cleaned.select_dtypes(include=['float64']).columns
+        X_cleaned[float_cols] = X_cleaned[float_cols].astype('float32')
+        
+        # Train models for arrival and departure delays
+        for target in ['arrival', 'departure']:
+            print(f"\nTraining {target} model...")
+            
+            y = df[f'{target.upper()}_TIME_DIFF_SECONDS'].astype('float32')
+            
+            # Enhanced outlier removal using IQR
+            q1, q3 = y.quantile([0.25, 0.75])
+            iqr = q3 - q1
+            valid_mask = (y >= q1 - 3*iqr) & (y <= q3 + 3*iqr)
+            X_filtered = X_cleaned[valid_mask]
+            y_filtered = y[valid_mask]
+            
+            # Take a sample if dataset is very large
+            if len(X_filtered) > 100000:
+                sample_idx = np.random.choice(len(X_filtered), 100000, replace=False)
+                X_filtered = X_filtered.iloc[sample_idx]
+                y_filtered = y_filtered.iloc[sample_idx]
+            
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_filtered, y_filtered, 
+                test_size=0.2, 
+                random_state=42
+            )
+            
+            # Create pipeline with grid search
+            pipeline = Pipeline([
+                ('preprocessor', self.create_preprocessing_pipeline()),
+                ('regressor', RandomForestRegressor(**self.model_params))
+            ])
+            
+            # Simple parameter grid
+            param_grid = {
+                'regressor__min_samples_split': [10, 20],
+                'regressor__min_samples_leaf': [5, 10]
+            }
+            
+            # Perform grid search
+            grid_search = GridSearchCV(
+                pipeline,
+                param_grid,
+                cv=TimeSeriesSplit(n_splits=3),
+                scoring='neg_root_mean_squared_error',
+                n_jobs=-1,
+                verbose=1
+            )
+            
+            grid_search.fit(X_train, y_train)
+            
+            # Get best model
+            model = grid_search.best_estimator_
+            
+            # Evaluate
+            y_pred = model.predict(X_test)
+            r2 = r2_score(y_test, y_pred)
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            
+            # Calculate feature importance with permutation importance
+            perm_importance = permutation_importance(
+                model, X_test, y_test,
+                n_repeats=5,
+                random_state=42,
+                n_jobs=-1
+            )
+            
+            # Store results
+            feature_names = X_filtered.columns.tolist()
+            importances = pd.DataFrame({
+                'feature': feature_names,
+                'importance': perm_importance.importances_mean,
+                'importance_std': perm_importance.importances_std
+            }).sort_values('importance', ascending=False)
+            
+            models[target] = {
+                'model': model,
+                'metrics': {
+                    'r2': r2,
+                    'rmse': rmse,
+                    'best_params': grid_search.best_params_,
+                    'cv_results': grid_search.cv_results_
+                },
+                'feature_importance': importances
+            }
+            
+            # Print results
+            print(f"\n{target.title()} Model Performance:")
+            print(f"Best parameters: {grid_search.best_params_}")
+            print(f"R² Score: {r2:.3f}")
+            print(f"RMSE: {rmse/60:.2f} minutes")
+            
+            # Clear memory
+            del grid_search
+            gc.collect()
+        
+        return models
+
+    def create_feature_importance_plot(self, models, plots_dir):
+        """Create enhanced feature importance visualization."""
+        plt.style.use('default')  # Use default style instead of seaborn
+        fig = plt.figure(figsize=(15, 20))
+        gs = plt.GridSpec(2, 1, height_ratios=[1, 1], hspace=0.3)
+        
+        for idx, (target, model_info) in enumerate(models.items()):
+            ax = fig.add_subplot(gs[idx])
+            importances = model_info['feature_importance'].head(15)
+            
+            # Create horizontal bar plot
+            bars = ax.barh(range(len(importances)), importances['importance'],
+                        xerr=importances['importance_std'],
+                        alpha=0.8, capsize=5,
+                        color='royalblue')  # Add specific color
+            
+            # Customize plot
+            ax.set_yticks(range(len(importances)))
+            ax.set_yticklabels(importances['feature'])
+            ax.set_xlabel('Feature Importance Score')
+            ax.set_title(f'{target.title()} Model - Top 15 Features\n'
+                        f'R² Score: {model_info["metrics"]["r2"]:.3f}, '
+                        f'RMSE: {model_info["metrics"]["rmse"]/60:.2f} minutes')
+            
+            # Add grid
+            ax.grid(True, axis='x', linestyle='--', alpha=0.7)
+        
+        plt.suptitle('Feature Importance Analysis', fontsize=16, y=0.95)
+        plt.savefig(os.path.join(plots_dir, 'feature_importance.png'), 
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def create_delay_distribution_plot(self, df, plots_dir):
+        """Create enhanced delay distribution visualization."""
+        plt.figure(figsize=(15, 10))
+        
+        # Main subplot for histogram
+        plt.subplot(2, 1, 1)
+        
+        # Convert to minutes for better readability
+        departure_delays = df['DEPARTURE_TIME_DIFF_SECONDS'] / 60
+        arrival_delays = df['ARRIVAL_TIME_DIFF_SECONDS'] / 60
+        
+        # Plot histograms
+        plt.hist(departure_delays, bins=50, alpha=0.5, label='Departure', color='royalblue')
+        plt.hist(arrival_delays, bins=50, alpha=0.5, label='Arrival', color='crimson')
+        
+        plt.axvline(x=0, color='black', linestyle='--', alpha=0.5)
+        plt.xlabel('Delay (minutes)')
+        plt.ylabel('Frequency')
+        plt.title('Distribution of Train Delays')
+        plt.legend()
+        
+        # Add statistics
+        stats_text = (
+            f"Departure Delays:\n"
+            f"Mean: {departure_delays.mean():.1f} min\n"
+            f"Median: {departure_delays.median():.1f} min\n"
+            f"Std Dev: {departure_delays.std():.1f} min\n\n"
+            f"Arrival Delays:\n"
+            f"Mean: {arrival_delays.mean():.1f} min\n"
+            f"Median: {arrival_delays.median():.1f} min\n"
+            f"Std Dev: {arrival_delays.std():.1f} min"
+        )
+        
+        plt.text(0.95, 0.95, stats_text,
+                transform=plt.gca().transAxes,
+                verticalalignment='top',
+                horizontalalignment='right',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        plt.savefig(os.path.join(plots_dir, 'delay_distribution.png'), 
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def create_delay_distribution_plot(self, df, plots_dir):
+        """Create enhanced delay distribution visualization."""
+        plt.figure(figsize=(15, 10))
+        
+        # Main subplot for KDE
+        plt.subplot(2, 1, 1)
+        
+        # Convert to minutes for better readability
+        departure_delays = df['DEPARTURE_TIME_DIFF_SECONDS'] / 60
+        arrival_delays = df['ARRIVAL_TIME_DIFF_SECONDS'] / 60
+        
+        # Plot KDE
+        sns.kdeplot(data=departure_delays, label='Departure', alpha=0.6)
+        sns.kdeplot(data=arrival_delays, label='Arrival', alpha=0.6)
+        
+        plt.axvline(x=0, color='black', linestyle='--', alpha=0.5)
+        plt.xlabel('Delay (minutes)')
+        plt.ylabel('Density')
+        plt.title('Distribution of Train Delays')
+        plt.legend()
+        
+        # Add statistics
+        stats_text = (
+            f"Departure Delays:\n"
+            f"Mean: {departure_delays.mean():.1f} min\n"
+            f"Median: {departure_delays.median():.1f} min\n"
+            f"Std Dev: {departure_delays.std():.1f} min\n\n"
+            f"Arrival Delays:\n"
+            f"Mean: {arrival_delays.mean():.1f} min\n"
+            f"Median: {arrival_delays.median():.1f} min\n"
+            f"Std Dev: {arrival_delays.std():.1f} min"
+        )
+        
+        plt.text(0.95, 0.95, stats_text,
+                transform=plt.gca().transAxes,
+                verticalalignment='top',
+                horizontalalignment='right',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        plt.savefig(os.path.join(plots_dir, 'delay_distribution.png'), 
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def create_weather_impact_plot(self, df, plots_dir):
+        """Create visualization of weather impacts on delays."""
+        plt.figure(figsize=(20, 15))
+        
+        weather_impacts = [
+            ('temperature_2m', 'Temperature (°C)'),
+            ('wind_speed', 'Wind Speed (m/s)'),
+            ('total_precipitation', 'Precipitation (mm)'),
+            ('snow_cover', 'Snow Cover (%)'),
+            ('surface_pressure', 'Surface Pressure (hPa)'),
+            ('solar_radiation', 'Solar Radiation (W/m²)')
+        ]
+        
+        for i, (feature, label) in enumerate(weather_impacts, 1):
+            plt.subplot(2, 3, i)
+            
+            # Create scatter plot with trend line
+            plt.scatter(df[feature], 
+                    df['DEPARTURE_TIME_DIFF_SECONDS'] / 60,
+                    alpha=0.1, s=1, color='royalblue')
+            
+            # Add trend line
+            z = np.polyfit(df[feature], 
+                        df['DEPARTURE_TIME_DIFF_SECONDS'] / 60, 1)
+            p = np.poly1d(z)
+            plt.plot(df[feature], p(df[feature]), 
+                    color='crimson', linestyle='--', alpha=0.8)
+            
+            plt.xlabel(label)
+            plt.ylabel('Delay (minutes)')
+            plt.title(f'Impact of {label} on Delays')
+            
+            # Add correlation coefficient
+            corr = df[feature].corr(df['DEPARTURE_TIME_DIFF_SECONDS'])
+            plt.text(0.05, 0.95, f'Correlation: {corr:.3f}',
+                    transform=plt.gca().transAxes,
+                    verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, 'weather_impact.png'), 
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def create_model_performance_plot(self, models, plots_dir):
+        """Create visualization comparing model performances."""
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        
+        model_names = list(models.keys())
+        r2_scores = [info['metrics']['r2'] for info in models.values()]
+        rmse_scores = [info['metrics']['rmse']/60 for info in models.values()]
+        
+        # R² Score plot
+        ax1.bar(model_names, r2_scores, color='royalblue', alpha=0.7)
+        ax1.set_ylabel('R² Score')
+        ax1.set_title('R² Score by Model')
+        ax1.grid(True, linestyle='--', alpha=0.7)
+        
+        # RMSE plot
+        ax2.bar(model_names, rmse_scores, color='crimson', alpha=0.7)
+        ax2.set_ylabel('RMSE (minutes)')
+        ax2.set_title('RMSE by Model')
+        ax2.grid(True, linestyle='--', alpha=0.7)
+        
+        plt.suptitle('Model Performance Comparison', y=1.05)
+        plt.tight_layout()
+        
+        plt.savefig(os.path.join(plots_dir, 'model_performance.png'), 
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def create_visualizations(self, df, models):
+        """Create and save analysis visualizations."""
+        plots_dir = os.path.join(self.input_path, 'plots')
+        os.makedirs(plots_dir, exist_ok=True)
+        
+        # Create feature importance plot
+        self.create_feature_importance_plot(models, plots_dir)
+        
+        # Create delay distribution plot
+        self.create_delay_distribution_plot(df, plots_dir)
+        
+        # Create weather impact plot
+        self.create_weather_impact_plot(df, plots_dir)
+        
+        # Create model performance plot
+        self.create_model_performance_plot(models, plots_dir)
+
+    def save_results(self, df, models):
+        """Save models and analysis results efficiently."""
+        models_dir = os.path.join(self.input_path, 'models')
+        os.makedirs(models_dir, exist_ok=True)
+        
+        # Save models and results
+        for target, model_info in models.items():
+            # Save model
+            model_path = os.path.join(models_dir, f'{target}_model.joblib')
+            joblib.dump(model_info['model'], model_path)
+            
+            # Save feature importances
+            importance_path = os.path.join(models_dir, f'{target}_feature_importance.csv')
+            model_info['feature_importance'].to_csv(importance_path, index=False)
+            
+            # Save cross-validation results
+            cv_results_path = os.path.join(models_dir, f'{target}_cv_results.json')
+            cv_results = {
+                'best_params': model_info['metrics']['best_params'],
+                'mean_cv_score': float(-model_info['metrics']['cv_results']['mean_test_score'][0]),
+                'std_cv_score': float(model_info['metrics']['cv_results']['std_test_score'][0])
+            }
+            with open(cv_results_path, 'w') as f:
+                json.dump(cv_results, f, indent=2)
+        
+        # Save analysis summary
+        summary = {
+            'analysis_date': datetime.now().isoformat(),
+            'data_shape': df.shape,
+            'features_used': self.feature_cols,
+            'model_parameters': self.model_params,
+            'performance': {
+                target: {
+                    'r2_score': float(model_info['metrics']['r2']),
+                    'rmse_minutes': float(model_info['metrics']['rmse']/60),
+                    'best_parameters': model_info['metrics']['best_params']
+                }
+                for target, model_info in models.items()
+            }
+        }
+        
+        with open(os.path.join(models_dir, 'analysis_summary.json'), 'w') as f:
+            json.dump(summary, f, indent=2)
+
     def combine_and_analyze(self):
         """Combine parquet files and perform analysis."""
         try:
@@ -242,16 +620,13 @@ class ImprovedCombinedDataAnalyzer:
             
             print(f"\nFound {len(parquet_files)} parquet files")
             
-            # Read and combine all parquet files
+            # Read and combine parquet files
             print("\nReading and combining parquet files...")
             ddf = dd.read_parquet(parquet_files)
             
             # Convert to pandas for modeling
             print("\nConverting to pandas DataFrame...")
             df = ddf.compute()
-            
-            # Store initial columns for reference
-            self.initial_columns = df.columns.tolist()
             
             # Engineer features
             df = self.engineer_features(df)
@@ -260,11 +635,12 @@ class ImprovedCombinedDataAnalyzer:
             print("\nTraining models...")
             models = self.train_models(df)
             
-            # Create and save visualizations
+            # Create visualizations
             print("\nGenerating visualizations...")
             self.create_visualizations(df, models)
             
-            # Save models and analysis results
+            # Save results
+            print("\nSaving results...")
             self.save_results(df, models)
             
             return models
@@ -273,343 +649,17 @@ class ImprovedCombinedDataAnalyzer:
             logging.error(f"Analysis error: {str(e)}", exc_info=True)
             raise
         finally:
+            if self.client:
+                self.client.close()
             if self.cluster:
                 self.cluster.close()
-
-    def train_models(self, df):
-        """Train improved delay prediction models."""
-        models = {}
-        
-        # Prepare feature matrix
-        print("\nPreparing features...")
-        X = self.prepare_features(df)
-        
-        # Handle missing values
-        X_cleaned = X.copy()
-        for col in X.columns:
-            if col in self.weather_cols:
-                X_cleaned[col] = X_cleaned[col].fillna(X_cleaned[col].median())
-            else:
-                X_cleaned[col] = X_cleaned[col].fillna(0)
-        
-        # Print feature columns for debugging
-        print("\nFeature columns:")
-        for i, col in enumerate(X_cleaned.columns):
-            print(f"{i}: {col}")
-        
-        # Create preprocessing pipeline
-        preprocessor = self.create_preprocessing_pipeline()
-        
-        # Train models for arrival and departure delays
-        for target in ['arrival', 'departure']:
-            print(f"\nTraining {target} model...")
-            
-            y = df[f'{target.upper()}_TIME_DIFF_SECONDS']
-            
-            # Remove extreme outliers
-            valid_mask = np.abs(y - y.mean()) <= (3 * y.std())
-            X_filtered = X_cleaned[valid_mask]
-            y_filtered = y[valid_mask]
-            
-            # Split data
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_filtered, y_filtered, test_size=0.2, random_state=42
-            )
-            
-            # Create full pipeline
-            model = Pipeline([
-                ('preprocessor', preprocessor),
-                ('regressor', RandomForestRegressor(**self.model_params))
-            ])
-            
-            # Train model
-            model.fit(X_train, y_train)
-            
-            # Evaluate
-            y_pred = model.predict(X_test)
-            r2 = r2_score(y_test, y_pred)
-            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-            
-            print(f"{target.title()} Model Performance:")
-            print(f"R² Score: {r2:.3f}")
-            print(f"RMSE: {rmse/60:.2f} minutes")
-            
-            # Get feature importance safely
-            feature_names = X_filtered.columns.tolist()
-            feature_importance = model.named_steps['regressor'].feature_importances_
-            
-            # Create feature importance DataFrame
-            importances = pd.DataFrame({
-                'feature': feature_names[:len(feature_importance)],  # Ensure matching lengths
-                'importance': feature_importance
-            }).sort_values('importance', ascending=False)
-            
-            print(f"\nTop 10 most important features for {target} delays:")
-            for _, row in importances.head(10).iterrows():
-                print(f"- {row['feature']}: {row['importance']:.4f}")
-            
-            models[target] = {
-                'model': model,
-                'metrics': {
-                    'r2': r2,
-                    'rmse': rmse
-                },
-                'feature_importance': importances
-            }
-        
-        return models
-
-    def create_visualizations(self, df, models):
-        """Create and save analysis visualizations."""
-        plots_dir = os.path.join(self.input_path, 'plots')
-        os.makedirs(plots_dir, exist_ok=True)
-        
-        # 1. Enhanced Feature Importance Plot
-        self.create_feature_importance_plot(models, plots_dir)
-        
-        # 2. Enhanced Delay Distribution Plot
-        self.create_delay_distribution_plot(df, plots_dir)
-        
-        # 3. Weather Impact Plot
-        plt.figure(figsize=(15, 10))
-        weather_cols_to_plot = self.weather_cols[:6] + ['TEMP_DEWPOINT_DIFF']
-        for i, weather_col in enumerate(weather_cols_to_plot, 1):
-            plt.subplot(3, 3, i)
-            plt.scatter(df[weather_col], df['DEPARTURE_TIME_DIFF_SECONDS']/60, 
-                    alpha=0.1, s=1)
-            plt.xlabel(weather_col)
-            plt.ylabel('Delay (minutes)')
-            plt.title(f'Impact of {weather_col}')
-        plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, 'weather_impact.png'))
-        plt.close()
-        
-        # 4. Rush Hour Impact
-        plt.figure(figsize=(10, 6))
-        sns.boxplot(data=df, x='RUSH_HOUR', y=df['DEPARTURE_TIME_DIFF_SECONDS']/60)
-        plt.xlabel('Rush Hour (0/1)')
-        plt.ylabel('Delay (minutes)')
-        plt.title('Impact of Rush Hour on Delays')
-        plt.savefig(os.path.join(plots_dir, 'rush_hour_impact.png'))
-        plt.close()
-
-    def create_delay_distribution_plot(self, df, plots_dir):
-        """Create enhanced delay distribution visualization."""
-        plt.figure(figsize=(15, 10))
-        
-        # Create main subplot for KDE
-        plt.subplot(2, 1, 1)
-        
-        # Convert seconds to minutes for better readability
-        departure_delays = df['DEPARTURE_TIME_DIFF_SECONDS'] / 60
-        arrival_delays = df['ARRIVAL_TIME_DIFF_SECONDS'] / 60
-        
-        # Plot KDE with improved styling
-        sns.kdeplot(data=departure_delays, label='Departure', alpha=0.6, color='blue')
-        sns.kdeplot(data=arrival_delays, label='Arrival', alpha=0.6, color='red')
-        
-        # Add vertical line at 0 (on-time)
-        plt.axvline(x=0, color='black', linestyle='--', alpha=0.5, label='On Time')
-        
-        # Add descriptive labels
-        plt.xlabel('Delay (minutes)')
-        plt.ylabel('Density')
-        plt.title('Distribution of Train Delays\nKernel Density Estimation')
-        plt.legend()
-        
-        # Add text box with statistics
-        stats_text = (
-            f"Departure Delays:\n"
-            f"Mean: {departure_delays.mean():.1f} min\n"
-            f"Median: {departure_delays.median():.1f} min\n"
-            f"Std Dev: {departure_delays.std():.1f} min\n\n"
-            f"Arrival Delays:\n"
-            f"Mean: {arrival_delays.mean():.1f} min\n"
-            f"Median: {arrival_delays.median():.1f} min\n"
-            f"Std Dev: {arrival_delays.std():.1f} min"
-        )
-        plt.text(0.95, 0.95, stats_text, 
-                transform=plt.gca().transAxes, 
-                verticalalignment='top',
-                horizontalalignment='right',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        
-        # Add histogram subplot for more detail
-        plt.subplot(2, 1, 2)
-        
-        # Create bins centered around zero
-        max_delay = max(abs(departure_delays.min()), abs(departure_delays.max()),
-                    abs(arrival_delays.min()), abs(arrival_delays.max()))
-        bins = np.linspace(-max_delay, max_delay, 50)
-        
-        # Plot histograms
-        plt.hist(departure_delays, bins=bins, alpha=0.5, label='Departure', color='blue')
-        plt.hist(arrival_delays, bins=bins, alpha=0.5, label='Arrival', color='red')
-        
-        plt.axvline(x=0, color='black', linestyle='--', alpha=0.5, label='On Time')
-        plt.xlabel('Delay (minutes)')
-        plt.ylabel('Frequency')
-        plt.title('Histogram of Train Delays')
-        plt.legend()
-        
-        # Add percentage annotations
-        on_time_threshold = 1  # Define on-time as within 1 minute
-        dep_on_time = (abs(departure_delays) <= on_time_threshold).mean() * 100
-        arr_on_time = (abs(arrival_delays) <= on_time_threshold).mean() * 100
-        
-        plt.text(0.95, 0.95, 
-                f"On-time performance (±{on_time_threshold} min):\n"
-                f"Departures: {dep_on_time:.1f}%\n"
-                f"Arrivals: {arr_on_time:.1f}%",
-                transform=plt.gca().transAxes,
-                verticalalignment='top',
-                horizontalalignment='right',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, 'delay_distribution.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-
-    def create_feature_importance_plot(self, models, plots_dir):
-        """Create enhanced feature importance visualization."""
-        import textwrap
-        
-        plt.style.use('default')
-        fig = plt.figure(figsize=(15, 14))
-        gs = plt.GridSpec(2, 1, height_ratios=[1, 1], hspace=0.3)
-        ax1 = fig.add_subplot(gs[0])
-        ax2 = fig.add_subplot(gs[1])
-        
-        fig.suptitle('Feature Importance Analysis for Train Delay Prediction', 
-                    fontsize=16, y=0.98)
-        
-        colors = {
-            'numeric': '#2ecc71',    
-            'categorical': '#3498db',
-            'binary': '#e74c3c',    
-            'delay': '#9b59b6'      
-        }
-        
-        feature_categories = {
-            'numeric': [
-                'SCHEDULED_HOUR', 'ABFAHRTSZEIT_DAY_OF_WEEK', 
-                'ABFAHRTSZEIT_MONTH', 'STATION_LAT', 'STATION_LON',
-                'ROUTE_DISTANCE', 'CUMULATIVE_DISTANCE', 'JOURNEY_PROGRESS',
-                'REMAINING_STOPS', 'temperature_2m', 'dewpoint_2m',
-                'wind_speed', 'wind_direction', 'surface_pressure',
-                'total_precipitation', 'snow_cover', 'solar_radiation',
-                'TEMP_DEWPOINT_DIFF', 'HISTORICAL_DELAY_PATTERN', 'DELAY_TREND'
-            ],
-            'categorical': [
-                'ZUSATZFAHRT_TF_encoded', 'FAELLT_AUS_TF_encoded',
-                'DURCHFAHRT_TF_encoded', 'LINIEN_ID_encoded',
-                'LINIEN_TEXT_encoded', 'HALTESTELLEN_NAME_encoded'
-            ],
-            'binary': ['SEVERE_WEATHER', 'RUSH_HOUR'],
-            'delay': ['PREV_STATION_DELAY']
-        }
-        
-        def get_feature_category(feature_name):
-            for category, features in feature_categories.items():
-                if feature_name in features:
-                    return category
-            return 'numeric'
-        
-        for idx, (target, model_info) in enumerate(models.items()):
-            ax = ax1 if idx == 0 else ax2
-            importances = model_info['feature_importance'].head(15)
-            
-            bar_colors = [colors[get_feature_category(feature)] for feature in importances['feature']]
-            
-            bars = ax.barh(range(len(importances)), importances['importance'], 
-                        color=bar_colors, alpha=0.8)
-            
-            for i, v in enumerate(importances['importance']):
-                ax.text(v, i, f'{v:.3f}', va='center', fontsize=10)
-            
-            ylabels = ['\n'.join(textwrap.wrap(str(feature), width=30)) 
-                    for feature in importances['feature']]
-            ax.set_yticks(range(len(importances)))
-            ax.set_yticklabels(ylabels)
-            
-            ax.grid(True, axis='x', linestyle='--', alpha=0.7)
-            
-            subplot_title = (
-                f'Top 15 Features: {target.title()} Delay Prediction\n'
-                f'R² Score: {model_info["metrics"]["r2"]:.3f}, RMSE: {model_info["metrics"]["rmse"]/60:.2f} minutes'
-            )
-            ax.set_title(subplot_title, pad=20, fontsize=14)
-            ax.set_xlabel('Feature Importance Score', fontsize=12)
-            
-            legend_elements = [
-                plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.8,
-                            label=f'{category.title()} Features')
-                for category, color in colors.items()
-            ]
-            ax.legend(handles=legend_elements, 
-                    loc='center left', 
-                    title='Feature Categories', 
-                    bbox_to_anchor=(1.02, 0.5))
-            
-            metrics_text = (
-                f"Performance Summary:\n"
-                f"• R² Score: {model_info['metrics']['r2']:.3f}\n"
-                f"• RMSE: {model_info['metrics']['rmse']/60:.2f} minutes\n\n"
-                f"Top Feature Categories:\n"
-                f"• {get_feature_category(importances['feature'].iloc[0])}: "
-                f"{importances['importance'].iloc[0]:.3f}\n"
-                f"• {get_feature_category(importances['feature'].iloc[1])}: "
-                f"{importances['importance'].iloc[1]:.3f}"
-            )
-            ax.text(1.02, -0.1, metrics_text, transform=ax.transAxes,
-                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'),
-                    fontsize=10, verticalalignment='top')
-        
-        plt.subplots_adjust(right=0.85, top=0.92, bottom=0.08, hspace=0.4)
-        plt.savefig(os.path.join(plots_dir, 'feature_importance.png'), 
-                    dpi=300, bbox_inches='tight')
-        plt.close()
-
-    def save_results(self, df, models):
-        """Save models and analysis results."""
-        models_dir = os.path.join(self.input_path, 'models')
-        os.makedirs(models_dir, exist_ok=True)
-        
-        # Save models
-        for target, model_info in models.items():
-            model_path = os.path.join(models_dir, f'{target}_model.joblib')
-            joblib.dump(model_info['model'], model_path)
-            print(f"Saved {target} model to: {model_path}")
-        
-        # Save feature importances
-        for target, model_info in models.items():
-            importance_path = os.path.join(models_dir, f'{target}_feature_importance.csv')
-            model_info['feature_importance'].to_csv(importance_path, index=False)
-        
-        # Save analysis summary
-        summary = {
-            'analysis_date': datetime.now().isoformat(),
-            'data_shape': df.shape,
-            'features_used': self.feature_cols,
-            'model_parameters': self.model_params,
-            'performance': {
-                target: {
-                    'r2_score': float(model_info['metrics']['r2']),
-                    'rmse_minutes': float(model_info['metrics']['rmse']/60)
-                }
-                for target, model_info in models.items()
-            }
-        }
-        
-        with open(os.path.join(models_dir, 'analysis_summary.json'), 'w') as f:
-            json.dump(summary, f, indent=2)
 
 def main():
     """Main execution function."""
     try:
         input_path = "/home/vmk0863/dat503/data/processed/transport_weather_combined"
         
-        analyzer = ImprovedCombinedDataAnalyzer(
+        analyzer = OptimizedTrainDelayAnalyzer(
             input_path=input_path,
             n_workers=4,
             memory_per_worker=8
