@@ -73,8 +73,6 @@ class OptimizedTrainDelayAnalyzer:
 
     def engineer_features(self, df):
         """Add engineered features with improved performance."""
-        print("\nEngineering additional features...")
-        
         # Store initial columns
         self.initial_columns = df.columns.tolist()
         
@@ -138,7 +136,8 @@ class OptimizedTrainDelayAnalyzer:
             'DATE', 'TEMP_JOURNEY_ID', 'NEXT_LAT', 'NEXT_LON', 'TOTAL_STOPS',
             'STATION_LAT', 'STATION_LON',  # Remove coordinate columns
             'LINIEN_TEXT_encoded',  # Remove redundant line text
-            'FAELLT_AUS_TF_encoded'  # Remove constant cancelled trains feature
+            'FAELLT_AUS_TF_encoded',  # Remove constant cancelled trains feature
+            'DURCHFAHRT_TF_encoded'  # Remove pass-through feature as discussed
         ]
         df = df.drop(columns_to_drop, axis=1)
         
@@ -173,7 +172,6 @@ class OptimizedTrainDelayAnalyzer:
         
         categorical_features = [
             'ZUSATZFAHRT_TF_encoded',
-            'DURCHFAHRT_TF_encoded',
             'LINIEN_ID_encoded',
             'HALTESTELLEN_NAME_encoded'
         ]
@@ -336,6 +334,7 @@ class OptimizedTrainDelayAnalyzer:
                 'importance': perm_importance.importances_mean,
                 'importance_std': perm_importance.importances_std
             }).sort_values('importance', ascending=False)
+            
             models[target] = {
                 'model': model,
                 'metrics': {
@@ -392,12 +391,10 @@ class OptimizedTrainDelayAnalyzer:
         """Create enhanced delay distribution visualization."""
         plt.figure(figsize=(15, 10))
         
-        # Main subplot for KDE
-        plt.subplot(2, 1, 1)
-        
         departure_delays = df['DEPARTURE_TIME_DIFF_SECONDS'] / 60
         arrival_delays = df['ARRIVAL_TIME_DIFF_SECONDS'] / 60
         
+        plt.subplot(2, 1, 1)
         sns.kdeplot(data=departure_delays, label='Departure', alpha=0.6)
         sns.kdeplot(data=arrival_delays, label='Arrival', alpha=0.6)
         
