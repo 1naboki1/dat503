@@ -133,7 +133,8 @@ class OptimizedTrainDelayAnalyzer:
             'STATION_LAT', 'STATION_LON',  # Remove coordinate columns
             'LINIEN_TEXT_encoded',  # Remove redundant line text
             'FAELLT_AUS_TF_encoded',  # Remove constant cancelled trains feature
-            'DURCHFAHRT_TF_encoded'  # Remove pass-through feature
+            'DURCHFAHRT_TF_encoded',  # Remove pass-through feature
+            'ZUSATZFAHRT_TF_encoded'  # Remove special service feature
         ]
         df = df.drop(columns_to_drop, axis=1)
         
@@ -166,7 +167,6 @@ class OptimizedTrainDelayAnalyzer:
         weather_features = self.weather_cols + ['TEMP_DEWPOINT_DIFF']
         
         categorical_features = [
-            'ZUSATZFAHRT_TF_encoded',
             'LINIEN_ID_encoded',
             'HALTESTELLEN_NAME_encoded'
         ]
