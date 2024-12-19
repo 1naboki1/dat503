@@ -99,12 +99,8 @@ class OptimizedTrainDelayAnalyzer:
         )
         df['ROUTE_DISTANCE'] = df['ROUTE_DISTANCE'].fillna(0)
         
-        # Calculate journey metrics
+        # Calculate cumulative distance
         df['CUMULATIVE_DISTANCE'] = df.groupby('TEMP_JOURNEY_ID')['ROUTE_DISTANCE'].cumsum()
-        
-        max_distances = df.groupby('TEMP_JOURNEY_ID')['CUMULATIVE_DISTANCE'].transform('max')
-        df['JOURNEY_PROGRESS'] = df['CUMULATIVE_DISTANCE'] / max_distances
-        df['JOURNEY_PROGRESS'] = df['JOURNEY_PROGRESS'].fillna(0)
         
         # Weather interaction features
         df['SEVERE_WEATHER'] = ((df['wind_speed'] > df['wind_speed'].quantile(0.75)) | 
@@ -137,7 +133,7 @@ class OptimizedTrainDelayAnalyzer:
             'STATION_LAT', 'STATION_LON',  # Remove coordinate columns
             'LINIEN_TEXT_encoded',  # Remove redundant line text
             'FAELLT_AUS_TF_encoded',  # Remove constant cancelled trains feature
-            'DURCHFAHRT_TF_encoded'  # Remove pass-through feature as discussed
+            'DURCHFAHRT_TF_encoded'  # Remove pass-through feature
         ]
         df = df.drop(columns_to_drop, axis=1)
         
@@ -163,8 +159,7 @@ class OptimizedTrainDelayAnalyzer:
         
         geo_features = [
             'ROUTE_DISTANCE', 
-            'CUMULATIVE_DISTANCE', 
-            'JOURNEY_PROGRESS', 
+            'CUMULATIVE_DISTANCE',
             'REMAINING_STOPS'
         ]
         
